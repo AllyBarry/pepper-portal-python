@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pepper Control</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; }
+    .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    label { display:block; font-weight:600; margin-bottom: .25rem; }
+    input, select { width: 100%; padding: .5rem; border: 1px solid #d1d5db; border-radius: 8px; }
+    button { padding:.5rem .9rem; border-radius:10px; border:1px solid #d1d5db; background:#fff; cursor:pointer; }
+    button:hover { background:#f9fafb; }
+    .row { display:flex; gap:.5rem; flex-wrap:wrap; }
+    .row > * { flex: 1 1 auto; min-width: 220px; }
+    .muted { color:#6b7280; font-size:.9rem; }
+    .ok { color: #16a34a; }
+    .err { color: #dc2626; }
+    .stack { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:.85rem; background:#f9fafb; padding:.75rem; border-radius:8px; border:1px solid #e5e7eb; }
+    .notice { background:#fffbeb; border:1px solid #fde68a; padding:.75rem; border-radius:8px; }
+  .anim-btn{ padding:.5rem .75rem; border-radius:10px; border:1px solid #d1d5db; background:#fff; cursor:pointer; }
+    .anim-btn:hover{ background:#f9fafb; }
+    .anim-btn.running{ background:#f3f4f6; color:#9ca3af; border-color:#e5e7eb; }
+  </style>
+</head>
+<body>
+  <h1>Pepper Control</h1>
+  <p class="muted">Connect to your Pepper and trigger audio or animations from the browser. Your Pepper IP & port are stored in localStorage on this device only.</p>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="pepperIp">Pepper IP</label>
+        <input id="pepperIp" placeholder="e.g., 192.168.1.6" />
+      </div>
+      <div>
+        <label for="pepperPort">Port</label>
+        <input id="pepperPort" placeholder="9559" />
+      </div>
+      <div style="align-self:end">
+        <button onclick="saveIp()">Save</button>
+        <button onclick="testConnect()">Test connection</button>
+      </div>
+    </div>
+    <div id="connStatus" class="muted" style="margin-top:.5rem"></div>
+    <div class="notice" style="margin-top:.5rem">On first visit, you will be prompted for IP and port; the app will auto-connect.</div>
+  </div>
+
+  <div class="card">
+    <h2>Audio</h2>
+    <div class="row">
+      <div>
+        <label for="audioPath">WAV file path on Pepper</label>
+        <input id="audioPath" placeholder="/data/home/nao/.local/share/wav/example.wav" />
+      </div>
+      <div style="align-self:end">
+        <button onclick="playAudio()">Play</button>
+        <button onclick="stopAudio()">Stop All</button>
+      </div>
+    </div>
+    <p class="muted">Tip: Copy your WAV file to Pepper (e.g., via scp) and paste the full path here.</p>
+    <div id="audioStatus" class="muted" style="margin-top:.5rem"></div>
+  </div>
+
+  <div class="card">
+    <h2>Animations</h2>
+    <p class="muted" style="margin-bottom:.5rem">Click an animation to run it (synchronous). While running, the button is greyed out. Click again to send a stop command.</p>
+    <div id="animButtons" class="row" style="gap:.5rem">
+      {% for anim in animations %}
+      <button class="anim-btn" data-anim="{{ anim }}" onclick="toggleAnimation(this)">{{ anim }}</button>
+      {% endfor %}
+      <div style="flex-basis:100%"></div>
+      <div class="row" style="margin-top:.5rem">
+        <div style="align-self:end">
+          <input id="animCustom" placeholder="animations/Stand/Gestures/Hey_1" style="width:100%; max-width:480px" />
+          <button onclick="runCustomAnimation()">Run custom</button>
+          <button onclick="stopAnimations()">Stop All</button>
+        </div>
+      </div>
+    </div>
+    <div id="animStatus" class="muted" style="margin-top:.5rem"></div>
+  </div>
+
+  <div class="card">
+    <h2>Logs</h2>
+    <div id="logs" class="stack" style="min-height:100px"></div>
+  </div>
+
+<script>
+  const ipInput = document.getElementById('pepperIp');
+  const portInput = document.getElementById('pepperPort');
+  const connStatus = document.getElementById('connStatus');
+  const audioStatus = document.getElementById('audioStatus');
+  const animStatus = document.getElementById('animStatus');
+  const logs = document.getElementById('logs');
+
+  function log(msg){ logs.textContent += "\n"+new Date().toLocaleTimeString()+"  "+msg; logs.scrollTop = logs.scrollHeight; }
+
+  function savedIp(){ return localStorage.getItem('pepperIp') || ''; }
+  function savedPort(){ return localStorage.getItem('pepperPort') || '9559'; }
+  function saveIp(){
+    localStorage.setItem('pepperIp', ipInput.value.trim());
+    localStorage.setItem('pepperPort', (portInput.value.trim()||'9559'));
+    log('Saved IP: '+ipInput.value.trim()+', Port: '+(portInput.value.trim()||'9559'));
+  }
+
+  function loadIp(){
+    ipInput.value = savedIp();
+    portInput.value = savedPort();
+  }
+
+  async function postJSON(url, data){
+    const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    const json = await res.json();
+    if(!json.ok){ throw new Error(json.error || 'Request failed'); }
+    return json;
+  }
+
+  async function testConnect(){
+    const ip = ipInput.value.trim();
+    const port = (portInput.value.trim()||'9559');
+    if(!ip){ connStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+    connStatus.textContent = 'Connecting…';
+    try{
+      await postJSON('/api/connect-test', { ip, port: Number(port) });
+      connStatus.innerHTML = '<span class="ok">Connected. NAOqi services available.</span>';
+      log('Connected to '+ip+':'+port);
+    }catch(e){ connStatus.innerHTML = '<span class="err">'+e.message+'</span>'; log('Connect error: '+e.message); }
+  }
+
+  async function playAudio(){
+    const ip = ipInput.value.trim();
+    const port = (portInput.value.trim()||'9559');
+    const path = document.getElementById('audioPath').value.trim();
+    if(!ip || !path){ audioStatus.innerHTML = '<span class="err">IP and WAV path are required.</span>'; return; }
+    audioStatus.textContent = 'Playing…';
+    try{
+      const res = await postJSON('/api/play-audio', { ip, port: Number(port), path });
+      audioStatus.innerHTML = '<span class="ok">Playing (fileId '+res.fileId+').</span>';
+      log('Audio playing: '+path+' (fileId '+res.fileId+')');
+    }catch(e){ audioStatus.innerHTML = '<span class="err">'+e.message+'</span>'; log('Audio error: '+e.message); }
+  }
+
+  async function stopAudio(){
+    const ip = ipInput.value.trim();
+    const port = (portInput.value.trim()||'9559');
+    if(!ip){ audioStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+    try{
+      await postJSON('/api/stop-audio', { ip, port: Number(port) });
+      audioStatus.innerHTML = '<span class="ok">Stopped all audio.</span>';
+      log('Stopped all audio.');
+    }catch(e){ audioStatus.innerHTML = '<span class="err">'+e.message+'</span>'; log('Stop audio error: '+e.message); }
+  }
+
+  async function runAnimation(){
+    const ip = ipInput.value.trim();
+    const port = (portInput.value.trim()||'9559');
+    let anim = document.getElementById('animCustom').value.trim();
+    if(!anim){ anim = document.getElementById('animSelect').value; }
+    const mode = document.getElementById('animMode').value;
+    if(!ip || !anim){ animStatus.innerHTML = '<span class="err">IP and animation are required.</span>'; return; }
+    animStatus.textContent = 'Running…';
+    try{
+      await postJSON('/api/run-animation', { ip, port: Number(port), animation: anim, mode });
+      if(mode === 'async'){
+        animStatus.innerHTML = '<span class="ok">Started async animation.</span>';
+      } else {
+        animStatus.innerHTML = '<span class="ok">Animation complete.</span>';
+      }
+      log('Animation '+(mode==='async'?'started':'finished')+': '+anim);
+    }catch(e){ animStatus.innerHTML = '<span class="err">'+e.message+'</span>'; log('Animation error: '+e.message); }
+  }
+
+  async function stopAnimations(){
+    const ip = ipInput.value.trim();
+    const port = (portInput.value.trim()||'9559');
+    if(!ip){ animStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+    try{
+      await postJSON('/api/stop-animations', { ip, port: Number(port) });
+      animStatus.innerHTML = '<span class="ok">Stopped all animations.</span>';
+      log('Stopped all animations.');
+    }catch(e){ animStatus.innerHTML = '<span class="err">'+e.message+'</span>'; log('Stop animation error: '+e.message); }
+  }
+
+  window.addEventListener('load', async () => {
+    loadIp();
+    if(!savedIp()){
+      const ip = window.prompt('Enter Pepper IP (e.g., 192.168.1.6)');
+      const port = window.prompt('Enter NAOqi port', '9559');
+      if(ip){ ipInput.value = ip.trim(); }
+      if(port){ portInput.value = (port.trim()||'9559'); }
+      saveIp();
+      if(ip){ await testConnect(); }
+    } else {
+      if(!localStorage.getItem('pepperPort')){
+        portInput.value = '9559';
+        localStorage.setItem('pepperPort','9559');
+      }
+    }
+  });
+  // Animation buttons logic
+  function getAnimButtons(){ return Array.prototype.slice.call(document.querySelectorAll('.anim-btn')); }
+
+  function toggleAnimation(btn){
+    const ip = ipInput.value.trim();
+    if(!ip){ animStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+    const running = btn.classList.contains('running');
+    if(running){
+      // Second click: send a stop signal (best-effort)
+      stopAnimations();
+      log('Stop requested for animations');
+      return;
+    }
+    // First click: mark running (grey out) and start sync run without blocking UI
+    btn.classList.add('running');
+    btn.dataset.running = '1';
+    runAnimationAndTrack(btn.dataset.anim, btn);
+  }
+
+  async function runAnimationAndTrack(anim, btn){
+    const ip = ipInput.value.trim();
+    const port = (portInput.value.trim()||'9559');
+    try{
+      animStatus.textContent = 'Running '+anim+'…';
+      await postJSON('/api/run-animation', { ip, port: Number(port), animation: anim, mode: 'sync' });
+      animStatus.innerHTML = '<span class="ok">Animation complete.</span>';
+      log('Animation finished: '+anim);
+    }catch(e){
+      animStatus.innerHTML = '<span class="err">'+e.message+'</span>';
+      log('Animation error: '+e.message);
+    } finally {
+      if(btn){ btn.classList.remove('running'); btn.dataset.running='0'; }
+    }
+  }
+
+  async function runCustomAnimation(){
+    const anim = document.getElementById('animCustom').value.trim();
+    if(!anim){ animStatus.innerHTML = '<span class="err">Enter a custom animation path.</span>'; return; }
+    // create a temporary button-like tracker so user can stop
+    const tempBtn = document.createElement('button');
+    tempBtn.className = 'anim-btn running';
+    tempBtn.dataset.anim = anim;
+    document.getElementById('animButtons').appendChild(tempBtn);
+    runAnimationAndTrack(anim, tempBtn);
+  }
+</script>
+</body>
+</html>
