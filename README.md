@@ -31,6 +31,8 @@ scp <file_name> nao@192.168.1.5:/data/home/nao/.local/share/wav/
 ## Build and Run the Container
 After cloning this repository, from the root directory, build the image and run the container.
 
+Before doing so, you will need to copy the pynaoqi python2.7 sdk into the root folder: `pynaoqi-python2.7-2.8.6.23-linux64-20191127_152327.tar.gz`. This can be found online.
+
 ```bash
 # Build the container
 docker build -t pepper-portal-python .
