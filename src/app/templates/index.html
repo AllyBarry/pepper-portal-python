@@ -176,7 +176,7 @@
     const port = (portInput.value.trim()||'9559');
     if(!ip){ animStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
     try{
-      await postJSON('/api/stop-animations', { ip, port: Number(port) });
+      await postJSON('/api/stop-animation', { ip, port: Number(port) });
       animStatus.innerHTML = '<span class="ok">Stopped all animations.</span>';
       log('Stopped all animations.');
     }catch(e){ animStatus.innerHTML = '<span class="err">'+e.message+'</span>'; log('Stop animation error: '+e.message); }

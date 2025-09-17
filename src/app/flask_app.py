@@ -42,7 +42,9 @@ _sessions = {}
 
 def get_session(ip, port=9559):
     if qi is None:
-        raise RuntimeError("NAOqi 'qi' module not found. Ensure NAOqi SDK is installed and PYTHONPATH is set.")
+        raise RuntimeError(
+            "NAOqi 'qi' module not found. Ensure NAOqi SDK is installed and PYTHONPATH is set."
+        )
     key = "%s:%s" % (ip, port)
     sess = _sessions.get(key)
     if sess is None:
@@ -52,14 +54,14 @@ def get_session(ip, port=9559):
     # Connect only if not already connected
     try:
         # NAOqi 2.5 provides isConnected()
-        if hasattr(sess, 'isConnected'):
+        if hasattr(sess, "isConnected"):
             if not sess.isConnected():
                 sess.connect("tcp://%s:%s" % (ip, port))
         else:
             # Fallback for older bindings: try connect and ignore "already connected"
             sess.connect("tcp://%s:%s" % (ip, port))
     except RuntimeError as e:
-        if 'already connected' not in str(e).lower():
+        if "already connected" not in str(e).lower():
             raise
     return sess
 
@@ -90,15 +92,166 @@ def json_endpoint(fn):
 # A small curated list of animations from Aldebaran docs (NAOqi 2.5)
 # You can extend this as needed.
 ANIMATIONS = [
-    "animations/Stand/Gestures/Hey_1",
-    "animations/Stand/Gestures/Hello_3",
+    # BodyTalk
+    "animations/Stand/BodyTalk/BodyTalk_1", # These don't seem to work
+    "animations/Stand/BodyTalk/BodyTalk_2",
+    "animations/Stand/BodyTalk/BodyTalk_3",
+    "animations/Stand/BodyTalk/BodyTalk_4",
+    "animations/Stand/BodyTalk/BodyTalk_5",
+    "animations/Stand/BodyTalk/BodyTalk_6",
+    "animations/Stand/BodyTalk/BodyTalk_7",
+    "animations/Stand/BodyTalk/BodyTalk_8",
+    "animations/Stand/BodyTalk/BodyTalk_9",
+    "animations/Stand/BodyTalk/BodyTalk_10",
+    "animations/Stand/BodyTalk/BodyTalk_11",
+    "animations/Stand/BodyTalk/BodyTalk_12",
+    "animations/Stand/BodyTalk/BodyTalk_13",
+    "animations/Stand/BodyTalk/BodyTalk_14",
+    "animations/Stand/BodyTalk/BodyTalk_15",
+    "animations/Stand/BodyTalk/BodyTalk_16",
+    #  Emotions
+    "animations/Stand/Emotions/Negative/Bored_1",
+    "animations/Stand/Emotions/Neutral/Embarrassed_1",
+    "animations/Stand/Emotions/Positive/Happy_1", # Has noise
+    "animations/Stand/Emotions/Positive/Happy_2", # Has noise
+    "animations/Stand/Emotions/Positive/Happy_3", # Has noise
+    "animations/Stand/Emotions/Positive/Happy_4", # Has noise
+    "animations/Stand/Emotions/Positive/Hysterical_1",
+    "animations/Stand/Emotions/Positive/Peaceful_1",
+    #   Gestures
+    "animations/Stand/Gestures/BowShort_1",
+    "animations/Stand/Gestures/But_1",
+    "animations/Stand/Gestures/CalmDown_1",
+    "animations/Stand/Gestures/CalmDown_5",
+    "animations/Stand/Gestures/CalmDown_6",
+    "animations/Stand/Gestures/Choice_1",
+    "animations/Stand/Gestures/Desperate_1",
+    "animations/Stand/Gestures/Desperate_2",
+    "animations/Stand/Gestures/Desperate_4",
+    "animations/Stand/Gestures/Desperate_5",
     "animations/Stand/Gestures/Enthusiastic_4",
-    "animations/Stand/Gestures/CalmDown_2",
+    "animations/Stand/Gestures/Enthusiastic_5",
+    "animations/Stand/Gestures/Everything_1",
+    "animations/Stand/Gestures/Everything_2",
+    "animations/Stand/Gestures/Everything_3",
+    "animations/Stand/Gestures/Everything_4",
+    "animations/Stand/Gestures/Excited_1",
+    "animations/Stand/Gestures/Explain_1",
     "animations/Stand/Gestures/Explain_2",
-    "animations/Stand/BodyTalk/Pepper/BodyTalk_1",
-    "animations/Stand/BodyTalk/Pepper/BodyTalk_3",
-    "animations/Stand/BodyTalk/Pepper/BodyTalk_4",
+    "animations/Stand/Gestures/Explain_3",
+    "animations/Stand/Gestures/Explain_4",
+    "animations/Stand/Gestures/Explain_5",
+    "animations/Stand/Gestures/Explain_6",
+    "animations/Stand/Gestures/Explain_7",
+    "animations/Stand/Gestures/Explain_8",
+    "animations/Stand/Gestures/Explain_9",
+    "animations/Stand/Gestures/Explain_10",
+    "animations/Stand/Gestures/Explain_11",
+    "animations/Stand/Gestures/Far_1",
+    "animations/Stand/Gestures/Far_2",
+    "animations/Stand/Gestures/Far_3",
+    "animations/Stand/Gestures/Give_3",
+    "animations/Stand/Gestures/Give_4",
+    "animations/Stand/Gestures/Give_5",
+    "animations/Stand/Gestures/Give_6",
+    "animations/Stand/Gestures/Hey_1",
+    "animations/Stand/Gestures/Hey_3",
+    "animations/Stand/Gestures/Hey_4",
+    "animations/Stand/Gestures/Hey_6",
+    "animations/Stand/Gestures/IDontKnow_1",
+    "animations/Stand/Gestures/IDontKnow_2",
+    "animations/Stand/Gestures/IDontKnow_3",
+    "animations/Stand/Gestures/Me_1",
+    "animations/Stand/Gestures/Me_2",
+    "animations/Stand/Gestures/Me_4",
+    "animations/Stand/Gestures/Me_7",
+    "animations/Stand/Gestures/No_1",
+    "animations/Stand/Gestures/No_2",
+    "animations/Stand/Gestures/No_3",
+    "animations/Stand/Gestures/No_8",
+    "animations/Stand/Gestures/No_9",
+    "animations/Stand/Gestures/Nothing_2",
+    "animations/Stand/Gestures/Please_1",
+    "animations/Stand/Gestures/ShowFloor_1",
+    "animations/Stand/Gestures/ShowFloor_3",
+    "animations/Stand/Gestures/ShowFloor_4",
+    "animations/Stand/Gestures/ShowSky_1",
+    "animations/Stand/Gestures/ShowSky_11",
+    "animations/Stand/Gestures/ShowSky_2",
+    "animations/Stand/Gestures/ShowSky_4",
+    "animations/Stand/Gestures/ShowSky_5",
+    "animations/Stand/Gestures/ShowSky_6",
+    "animations/Stand/Gestures/ShowSky_7",
+    "animations/Stand/Gestures/ShowSky_8",
+    "animations/Stand/Gestures/ShowSky_9",
+    "animations/Stand/Gestures/ShowTablet_2",
+    "animations/Stand/Gestures/ShowTablet_3",
+    "animations/Stand/Gestures/Thinking_1",
+    "animations/Stand/Gestures/Thinking_3",
+    "animations/Stand/Gestures/Thinking_4",
+    "animations/Stand/Gestures/Thinking_6",
+    "animations/Stand/Gestures/Thinking_8",
+    "animations/Stand/Gestures/Yes_1",
+    "animations/Stand/Gestures/Yes_2",
+    "animations/Stand/Gestures/Yes_3",
+    "animations/Stand/Gestures/YouKnowWhat_1",
+    "animations/Stand/Gestures/YouKnowWhat_2",
+    "animations/Stand/Gestures/YouKnowWhat_3",
+    "animations/Stand/Gestures/YouKnowWhat_5",
+    "animations/Stand/Gestures/YouKnowWhat_6",
+    "animations/Stand/Gestures/You_1",
+    "animations/Stand/Gestures/You_4",
+    "animations/Stand/Waiting/ShowSky_1",
+    "animations/Stand/Waiting/ShowSky_2",
+    "animations/Stand/Waiting/Think_1",
+    "animations/Stand/Waiting/Think_2",
+    "animations/Stand/Waiting/Think_3",
 ]
+
+
+ANIMATIONS_GROUPED = {
+    "Gestures": [
+        "animations/Stand/Gestures/Hey_1",
+        "animations/Stand/Gestures/Hello_1",
+        "animations/Stand/Gestures/CalmDown_1",
+        "animations/Stand/Gestures/Enthusiastic_1",
+        "animations/Stand/Gestures/Explain_1",
+        "animations/Stand/Gestures/No_1",
+        "animations/Stand/Gestures/Yes_1",
+        "animations/Stand/Gestures/YouKnowWhat_1",
+        "animations/Stand/Gestures/ShowSky_1",
+        "animations/Stand/Gestures/ShowFloor_1",
+        "animations/Stand/Gestures/Me_1",
+        "animations/Stand/Gestures/Think_1",
+        "animations/Stand/Gestures/Surprised_1",
+        "animations/Stand/Gestures/Clap_1",
+    ],
+    "BodyTalk": [
+        "animations/Stand/BodyTalk/BodyTalk_1",
+        "animations/Stand/BodyTalk/BodyTalk_2",
+        "animations/Stand/BodyTalk/BodyTalk_3",
+        "animations/Stand/BodyTalk/BodyTalk_4",
+    ],
+    "Emotions": [
+        "animations/Stand/Emotions/Positive_1",
+        "animations/Stand/Emotions/Negative_1",
+        "animations/Stand/Emotions/Surprise_1",
+        "animations/Stand/Emotions/Excited_1",
+        "animations/Stand/Emotions/Frustrated_1",
+    ],
+    "Reactions": [
+        "animations/Stand/Reactions/Applause_1",
+        "animations/Stand/Reactions/Joy_1",
+        "animations/Stand/Reactions/Sad_1",
+        "animations/Stand/Reactions/Startled_1",
+    ],
+    "Waiting": [
+        "animations/Stand/Waiting/LookHand_1",
+        "animations/Stand/Waiting/Idle_1",
+        "animations/Stand/Waiting/LookFar_1",
+        "animations/Stand/Waiting/Stretch_1",
+    ],
+}
 
 
 @app.route("/", methods=["GET"])
