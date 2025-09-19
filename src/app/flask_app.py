@@ -24,8 +24,12 @@ NOTE: This app intentionally has no auth and trusts the provided Pepper IP. If y
 from __future__ import print_function
 
 import os
+import sys
+import subprocess
 import traceback
 from functools import wraps
+import itertools
+import threading
 
 from flask import Flask, request, jsonify, render_template
 
@@ -36,8 +40,13 @@ except Exception as e:
 
 app = Flask(__name__)
 
+SCRIPTS_DIR = os.environ.get("SCRIPTS_DIR", os.path.join(os.path.dirname(__file__), "scripts"))
+
 # --- Simple in-memory session cache per (ip, port) (optional) ---
 _sessions = {}
+_jobs = {}
+_job_counter = itertools.count(1)
+_jobs_lock = threading.Lock()
 
 
 def get_session(ip, port=9559):
@@ -73,6 +82,26 @@ def with_services(ip, port=9559):
     anim = sess.service("ALAnimationPlayer")
     return audio, anim
 
+def _run_script_job(job_id, script_path, ip, port):
+    env = os.environ.copy()
+    env["PEPPER_IP"] = ip
+    env["PEPPER_PORT"] = str(port)
+    # Prefer the same Python used by Flask app; change to explicit path if needed.
+    cmd = [sys.executable, script_path, "--ip", ip, "--port", str(port)]
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+        out, _ = p.communicate()
+        output = out.decode("utf-8", "ignore") if not isinstance(out, str) else out
+        rc = p.returncode
+    except Exception as e:
+        output = "Error: %s" % (str(e),)
+        rc = 1
+    with _jobs_lock:
+        _jobs[job_id]["done"] = True
+        _jobs[job_id]["rc"] = rc
+        _jobs[job_id]["output"] = output
+
+
 
 # --- Error handling decorator for JSON endpoints ---
 
@@ -93,22 +122,22 @@ def json_endpoint(fn):
 # You can extend this as needed.
 ANIMATIONS = [
     # BodyTalk
-    "animations/Stand/BodyTalk/BodyTalk_1", # These don't seem to work
-    "animations/Stand/BodyTalk/BodyTalk_2",
-    "animations/Stand/BodyTalk/BodyTalk_3",
-    "animations/Stand/BodyTalk/BodyTalk_4",
-    "animations/Stand/BodyTalk/BodyTalk_5",
-    "animations/Stand/BodyTalk/BodyTalk_6",
-    "animations/Stand/BodyTalk/BodyTalk_7",
-    "animations/Stand/BodyTalk/BodyTalk_8",
-    "animations/Stand/BodyTalk/BodyTalk_9",
-    "animations/Stand/BodyTalk/BodyTalk_10",
-    "animations/Stand/BodyTalk/BodyTalk_11",
-    "animations/Stand/BodyTalk/BodyTalk_12",
-    "animations/Stand/BodyTalk/BodyTalk_13",
-    "animations/Stand/BodyTalk/BodyTalk_14",
-    "animations/Stand/BodyTalk/BodyTalk_15",
-    "animations/Stand/BodyTalk/BodyTalk_16",
+    # "animations/Stand/BodyTalk/BodyTalk_1", # These don't seem to work
+    # "animations/Stand/BodyTalk/BodyTalk_2",
+    # "animations/Stand/BodyTalk/BodyTalk_3",
+    # "animations/Stand/BodyTalk/BodyTalk_4",
+    # "animations/Stand/BodyTalk/BodyTalk_5",
+    # "animations/Stand/BodyTalk/BodyTalk_6",
+    # "animations/Stand/BodyTalk/BodyTalk_7",
+    # "animations/Stand/BodyTalk/BodyTalk_8",
+    # "animations/Stand/BodyTalk/BodyTalk_9",
+    # "animations/Stand/BodyTalk/BodyTalk_10",
+    # "animations/Stand/BodyTalk/BodyTalk_11",
+    # "animations/Stand/BodyTalk/BodyTalk_12",
+    # "animations/Stand/BodyTalk/BodyTalk_13",
+    # "animations/Stand/BodyTalk/BodyTalk_14",
+    # "animations/Stand/BodyTalk/BodyTalk_15",
+    # "animations/Stand/BodyTalk/BodyTalk_16",
     #  Emotions
     "animations/Stand/Emotions/Negative/Bored_1",
     "animations/Stand/Emotions/Neutral/Embarrassed_1",
@@ -342,6 +371,51 @@ def api_stop_animations():
     except Exception:
         pass
     return jsonify({"ok": True})
+
+@app.route("/api/scripts", methods=["GET"])
+def api_scripts():
+    if not os.path.isdir(SCRIPTS_DIR):
+        return jsonify({"ok": True, "scripts": []})
+    names = []
+    for name in os.listdir(SCRIPTS_DIR):
+        if name.endswith(".py") and not name.startswith("_"):
+            names.append(name)
+    names.sort()
+    return jsonify({"ok": True, "scripts": names})
+
+@app.route("/api/run-script", methods=["POST"])
+@json_endpoint
+def api_run_script():
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    script = (data.get("script") or "").strip()
+    if not ip or not script:
+        return jsonify({"ok": False, "error": "Provide 'ip' and 'script'"}), 400
+
+    spath = os.path.abspath(os.path.join(SCRIPTS_DIR, script))
+    if not spath.startswith(os.path.abspath(SCRIPTS_DIR) + os.sep) or not os.path.isfile(spath):
+        return jsonify({"ok": False, "error": "Invalid script"}), 400
+
+    job_id = str(next(_job_counter))
+    with _jobs_lock:
+        _jobs[job_id] = {"script": script, "done": False, "rc": None, "output": ""}
+
+    t = threading.Thread(target=_run_script_job, args=(job_id, spath, ip, port))
+    t.daemon = True
+    t.start()
+
+    return jsonify({"ok": True, "job_id": job_id})
+
+@app.route("/api/script-status", methods=["GET"])
+def api_script_status():
+    job_id = request.args.get("job_id", "").strip()
+    with _jobs_lock:
+        state = _jobs.get(job_id)
+        if not state:
+            return jsonify({"ok": False, "error": "Unknown job_id"}), 404
+        # Return a copy
+        return jsonify({"ok": True, "done": state["done"], "rc": state["rc"], "output": state["output"]})
 
 
 @app.route("/health", methods=["GET"])

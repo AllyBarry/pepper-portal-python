@@ -10,7 +10,6 @@ docker run -it \
   -v `pwd`/src:/home/user/src \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
-  --gpus all \
   --name pepper_portal \
   -w /home/user \
   -p 8080:5000 \
