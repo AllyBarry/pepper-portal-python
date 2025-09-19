@@ -417,6 +417,98 @@ def api_script_status():
         # Return a copy
         return jsonify({"ok": True, "done": state["done"], "rc": state["rc"], "output": state["output"]})
 
+@app.route("/api/mode-status", methods=["POST"])
+@json_endpoint
+def api_mode_status():
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    if not ip:
+        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
+
+    sess = get_session(ip, port)
+    # Awake / sleep (motors)
+    motion = sess.service("ALMotion")
+    try:
+        is_awake = bool(motion.robotIsWakeUp())  # True if motors on (wakeUp), False if rest
+    except Exception:
+        # Fallback: if robotIsWakeUp missing, infer from stiffness
+        try:
+            is_awake = any(motion.getStiffnesses("Body"))
+        except Exception:
+            is_awake = False
+
+    # Autonomous Life state -> use as our "animation mode"
+    animation_enabled = False
+    life_state = "unknown"
+    try:
+        life = sess.service("ALAutonomousLife")
+        life_state = life.getState()  # "disabled","solitary","interactive","safeguard"
+        animation_enabled = life_state != "disabled"
+    except Exception:
+        # Fallback: BasicAwareness
+        try:
+            awareness = sess.service("ALBasicAwareness")
+            animation_enabled = bool(awareness.isEnabled())
+            life_state = "basic_awareness_%s" % ("on" if animation_enabled else "off")
+        except Exception:
+            pass
+
+    return jsonify({
+        "ok": True,
+        "is_awake": is_awake,
+        "animation_enabled": animation_enabled,
+        "life_state": life_state,
+    })
+
+@app.route("/api/sleep", methods=["POST"])
+@json_endpoint
+def api_sleep():
+    data = request.get_json(force=True)
+    ip = data.get("ip", "").strip()
+    port = int(data.get("port", 9559))
+    action = (data.get("action") or "").strip().lower()
+    if not ip or action not in ("rest", "wake"):
+        return jsonify({"ok": False, "error": "Provide 'ip' and action in {'rest','wake'}"}), 400
+
+    sess = get_session(ip, port)
+    motion = sess.service("ALMotion")
+    if action == "rest":
+        motion.rest()     # motors off / relaxed
+    else:
+        motion.wakeUp()   # motors on / ready
+    return jsonify({"ok": True, "action": action})
+
+
+@app.route("/api/animation-mode", methods=["POST"])
+@json_endpoint
+def api_animation_mode():
+    data = request.get_json(force=True)
+    ip = data.get("ip", "").strip()
+    port = int(data.get("port", 9559))
+    enabled = bool(data.get("enabled", True))
+    if not ip:
+        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
+
+    sess = get_session(ip, port)
+    # Use Autonomous Life to toggle idle/animation-like behaviors.
+    life = sess.service("ALAutonomousLife")
+    try:
+        if enabled:
+            # 'solitary' is a safe default that enables idle animations/awareness
+            life.setState("solitary")
+        else:
+            life.setState("disabled")
+    except Exception:
+        # Some images prefer BasicAwareness toggle as fallback
+        try:
+            awareness = sess.service("ALBasicAwareness")
+            awareness.setEnabled(enabled)
+        except Exception:
+            pass
+    return jsonify({"ok": True, "enabled": enabled})
+
+
 
 @app.route("/health", methods=["GET"])
 def health():

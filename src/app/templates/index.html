@@ -5,6 +5,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Pepper Control</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='pepper_heart.png') }}" />
+
   <style>
     body {
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
@@ -125,6 +127,12 @@
     .mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: .85rem;
+    }
+
+    button[disabled] {
+      background: #e5e7eb;
+      cursor: not-allowed;
+      color: #9ca3af;
     }
   </style>
 </head>
@@ -270,7 +278,7 @@
     const animStatus = document.getElementById('animStatus');
     const logs = document.getElementById('logs');
 
-    function log(msg) { logs.textContent += "n" + new Date().toLocaleTimeString() + "  " + msg; logs.scrollTop = logs.scrollHeight; }
+    function log(msg) { logs.textContent += "\n" + new Date().toLocaleTimeString() + "  " + msg; logs.scrollTop = logs.scrollHeight; }
 
     function savedIp() { return localStorage.getItem('pepperIp') || ''; }
     function savedPort() { return localStorage.getItem('pepperPort') || '9559'; }
@@ -509,6 +517,113 @@
 
     // Fetch scripts on load
     window.addEventListener('load', function () { fetchScripts(); });
+
+    // ----- Periodic mode status poll -----
+    async function pollModes() {
+      const ip = ipInput.value.trim();
+      const port = (portInput.value.trim() || '9559');
+      const btnSleepOn = document.getElementById('btnSleepOn');
+      const btnSleepOff = document.getElementById('btnSleepOff');
+      const btnAnimOn = document.getElementById('btnAnimOn');
+      const btnAnimOff = document.getElementById('btnAnimOff');
+      if (!ip) return;
+      try {
+        const res = await fetch('/api/mode-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip, port: Number(port) }) });
+        const data = await res.json();
+        if (data.ok) {
+          // Sleep mode
+          if (data.sleeping) {
+            btnSleepOn.disabled = true;
+            btnSleepOff.disabled = false;
+          } else {
+            btnSleepOn.disabled = false;
+            btnSleepOff.disabled = true;
+          }
+          // Animation mode
+          if (data.animation_enabled) {
+            btnAnimOn.disabled = true;
+            btnAnimOff.disabled = false;
+          } else {
+            btnAnimOn.disabled = false;
+            btnAnimOff.disabled = true;
+          }
+        }
+      } catch (e) { /* ignore polling errors */ }
+    }
+    setInterval(pollModes, 5000);
+
+    // ---- Mode polling ----
+    let modePollTimer = null;
+
+    function applyModeUi(state) {
+      const sleepOn = document.getElementById('btnSleepOn');
+      const sleepOff = document.getElementById('btnSleepOff');
+      const animOn = document.getElementById('btnAnimOn');
+      const animOff = document.getElementById('btnAnimOff');
+      if (!sleepOn || !sleepOff || !animOn || !animOff) return;
+
+      // Sleep/Wake
+      if (state && typeof state.is_awake === 'boolean') {
+        // If awake: disable Activate Sleep OFF? No, UX: enable both, but grey the current state button
+        sleepOn.disabled = !state.is_awake ? true : false;   // if sleeping -> disable Sleep ON (already sleeping)
+        sleepOff.disabled = state.is_awake ? true : false;    // if awake    -> disable Wake (already awake)
+      }
+
+      // Animation mode (Autonomous Life / Awareness)
+      if (state && typeof state.animation_enabled === 'boolean') {
+        animOn.disabled = state.animation_enabled;  // if already enabled, grey ON
+        animOff.disabled = !state.animation_enabled; // if disabled, grey OFF
+      }
+
+      // Optional status text
+      const modeStatusEl = document.getElementById('modeStatus');
+      if (modeStatusEl && state) {
+        const life = state.life_state || 'unknown';
+        modeStatusEl.textContent = 'Awake: ' + (state.is_awake ? 'yes' : 'no') + '  •  Animation mode: ' + (state.animation_enabled ? 'enabled' : 'disabled') + '  •  Life: ' + life;
+      }
+    }
+
+    async function fetchModeStatus() {
+      const ip = ipInput.value.trim();
+      const port = (portInput.value.trim() || '9559');
+      if (!ip) return;
+      try {
+        const res = await postJSON('/api/mode-status', { ip, port: Number(port) });
+        applyModeUi(res);
+      } catch (e) { /* ignore transient errors */ }
+    }
+
+    function startModePolling() {
+      if (modePollTimer) clearInterval(modePollTimer);
+      fetchModeStatus();
+      modePollTimer = setInterval(fetchModeStatus, 3000);
+    }
+
+    // Patch existing actions to refresh UI after completion
+    const _origSetSleepMode = typeof setSleepMode === 'function' ? setSleepMode : null;
+    if (_origSetSleepMode) {
+      window.setSleepMode = async function (sleep) {
+        await _origSetSleepMode(sleep);
+        fetchModeStatus();
+      };
+    }
+    const _origSetAnimationMode = typeof setAnimationMode === 'function' ? setAnimationMode : null;
+    if (_origSetAnimationMode) {
+      window.setAnimationMode = async function (enabled) {
+        await _origSetAnimationMode(enabled);
+        fetchModeStatus();
+      };
+    }
+
+    // start polling after page init and on successful connect
+    window.addEventListener('load', function () { startModePolling(); });
+    const _origTestConnect = typeof testConnect === 'function' ? testConnect : null;
+    if (_origTestConnect) {
+      window.testConnect = async function () {
+        await _origTestConnect();
+        startModePolling();
+      };
+    }
 
   </script>
 </body>
