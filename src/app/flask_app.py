@@ -23,15 +23,16 @@ NOTE: This app intentionally has no auth and trusts the provided Pepper IP. If y
 
 from __future__ import print_function
 
+import itertools
+import json
 import os
-import sys
 import subprocess
+import sys
+import threading
 import traceback
 from functools import wraps
-import itertools
-import threading
 
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 
 try:
     import qi  # NAOqi Python SDK
@@ -40,7 +41,9 @@ except Exception as e:
 
 app = Flask(__name__)
 
-SCRIPTS_DIR = os.environ.get("SCRIPTS_DIR", os.path.join(os.path.dirname(__file__), "scripts"))
+SCRIPTS_DIR = os.environ.get(
+    "SCRIPTS_DIR", os.path.join(os.path.dirname(__file__), "scripts")
+)
 
 # --- Simple in-memory session cache per (ip, port) (optional) ---
 _sessions = {}
@@ -82,6 +85,7 @@ def with_services(ip, port=9559):
     anim = sess.service("ALAnimationPlayer")
     return audio, anim
 
+
 def _run_script_job(job_id, script_path, ip, port):
     env = os.environ.copy()
     env["PEPPER_IP"] = ip
@@ -89,7 +93,9 @@ def _run_script_job(job_id, script_path, ip, port):
     # Prefer the same Python used by Flask app; change to explicit path if needed.
     cmd = [sys.executable, script_path, "--ip", ip, "--port", str(port)]
     try:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+        p = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env
+        )
         out, _ = p.communicate()
         output = out.decode("utf-8", "ignore") if not isinstance(out, str) else out
         rc = p.returncode
@@ -100,7 +106,6 @@ def _run_script_job(job_id, script_path, ip, port):
         _jobs[job_id]["done"] = True
         _jobs[job_id]["rc"] = rc
         _jobs[job_id]["output"] = output
-
 
 
 # --- Error handling decorator for JSON endpoints ---
@@ -141,10 +146,10 @@ ANIMATIONS = [
     #  Emotions
     "animations/Stand/Emotions/Negative/Bored_1",
     "animations/Stand/Emotions/Neutral/Embarrassed_1",
-    "animations/Stand/Emotions/Positive/Happy_1", # Has noise
-    "animations/Stand/Emotions/Positive/Happy_2", # Has noise
-    "animations/Stand/Emotions/Positive/Happy_3", # Has noise
-    "animations/Stand/Emotions/Positive/Happy_4", # Has noise
+    "animations/Stand/Emotions/Positive/Happy_1",  # Has noise
+    "animations/Stand/Emotions/Positive/Happy_2",  # Has noise
+    "animations/Stand/Emotions/Positive/Happy_3",  # Has noise
+    "animations/Stand/Emotions/Positive/Happy_4",  # Has noise
     "animations/Stand/Emotions/Positive/Hysterical_1",
     "animations/Stand/Emotions/Positive/Peaceful_1",
     #   Gestures
@@ -372,6 +377,7 @@ def api_stop_animations():
         pass
     return jsonify({"ok": True})
 
+
 @app.route("/api/scripts", methods=["GET"])
 def api_scripts():
     if not os.path.isdir(SCRIPTS_DIR):
@@ -382,6 +388,7 @@ def api_scripts():
             names.append(name)
     names.sort()
     return jsonify({"ok": True, "scripts": names})
+
 
 @app.route("/api/run-script", methods=["POST"])
 @json_endpoint
@@ -394,7 +401,9 @@ def api_run_script():
         return jsonify({"ok": False, "error": "Provide 'ip' and 'script'"}), 400
 
     spath = os.path.abspath(os.path.join(SCRIPTS_DIR, script))
-    if not spath.startswith(os.path.abspath(SCRIPTS_DIR) + os.sep) or not os.path.isfile(spath):
+    if not spath.startswith(
+        os.path.abspath(SCRIPTS_DIR) + os.sep
+    ) or not os.path.isfile(spath):
         return jsonify({"ok": False, "error": "Invalid script"}), 400
 
     job_id = str(next(_job_counter))
@@ -407,6 +416,7 @@ def api_run_script():
 
     return jsonify({"ok": True, "job_id": job_id})
 
+
 @app.route("/api/script-status", methods=["GET"])
 def api_script_status():
     job_id = request.args.get("job_id", "").strip()
@@ -415,7 +425,15 @@ def api_script_status():
         if not state:
             return jsonify({"ok": False, "error": "Unknown job_id"}), 404
         # Return a copy
-        return jsonify({"ok": True, "done": state["done"], "rc": state["rc"], "output": state["output"]})
+        return jsonify(
+            {
+                "ok": True,
+                "done": state["done"],
+                "rc": state["rc"],
+                "output": state["output"],
+            }
+        )
+
 
 @app.route("/api/mode-status", methods=["POST"])
 @json_endpoint
@@ -430,7 +448,9 @@ def api_mode_status():
     # Awake / sleep (motors)
     motion = sess.service("ALMotion")
     try:
-        is_awake = bool(motion.robotIsWakeUp())  # True if motors on (wakeUp), False if rest
+        is_awake = bool(
+            motion.robotIsWakeUp()
+        )  # True if motors on (wakeUp), False if rest
     except Exception:
         # Fallback: if robotIsWakeUp missing, infer from stiffness
         try:
@@ -454,12 +474,15 @@ def api_mode_status():
         except Exception:
             pass
 
-    return jsonify({
-        "ok": True,
-        "is_awake": is_awake,
-        "animation_enabled": animation_enabled,
-        "life_state": life_state,
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "is_awake": is_awake,
+            "animation_enabled": animation_enabled,
+            "life_state": life_state,
+        }
+    )
+
 
 @app.route("/api/sleep", methods=["POST"])
 @json_endpoint
@@ -469,14 +492,19 @@ def api_sleep():
     port = int(data.get("port", 9559))
     action = (data.get("action") or "").strip().lower()
     if not ip or action not in ("rest", "wake"):
-        return jsonify({"ok": False, "error": "Provide 'ip' and action in {'rest','wake'}"}), 400
+        return (
+            jsonify(
+                {"ok": False, "error": "Provide 'ip' and action in {'rest','wake'}"}
+            ),
+            400,
+        )
 
     sess = get_session(ip, port)
     motion = sess.service("ALMotion")
     if action == "rest":
-        motion.rest()     # motors off / relaxed
+        motion.rest()  # motors off / relaxed
     else:
-        motion.wakeUp()   # motors on / ready
+        motion.wakeUp()  # motors on / ready
     return jsonify({"ok": True, "action": action})
 
 
@@ -509,10 +537,63 @@ def api_animation_mode():
     return jsonify({"ok": True, "enabled": enabled})
 
 
-
 @app.route("/health", methods=["GET"])
 def health():
     return {"status": "ok"}
+
+
+@app.route("/api/save-scene", methods=["POST"])
+@json_endpoint
+def api_save_scene():
+    data = request.get_json(force=True)
+    name = data.get("name", "").strip()
+    steps = data.get("steps", [])
+    if not name or not isinstance(steps, list):
+        return jsonify({"ok": False, "error": "Name and steps (array) required"}), 400
+
+    scene = {"script_name": name, "scene": steps}
+
+    scene_dir = os.path.join(SCRIPTS_DIR, "scenes")
+    os.makedirs(scene_dir)
+    path = os.path.join(scene_dir, "{}.json".format(name))
+    with open(path, "w") as f:
+        json.dump(scene, f, indent=2)
+
+    return jsonify({"ok": True, "filename": path})
+
+
+@app.route("/api/run-scene", methods=["POST"])
+@json_endpoint
+def api_run_scene():
+    data = request.get_json(force=True)
+    ip = data.get("ip", "").strip()
+    port = int(data.get("port", 9559))
+    name = data.get("name", "").strip()
+    if not ip or not name:
+        return jsonify({"ok": False, "error": "Missing IP or scene name"}), 400
+
+    scene_path = os.path.abspath(
+        os.path.join(SCRIPTS_DIR, "scenes", "{}.json".format(name))
+    )
+    if not os.path.exists(scene_path):
+        return jsonify({"ok": False, "error": "Scene not found"}), 404
+
+    job_id = str(next(_job_counter))
+    script_path = os.path.join(SCRIPTS_DIR, "run_scene.py")
+
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "script": "scene:{}".format(name),
+            "done": False,
+            "rc": None,
+            "output": "",
+        }
+
+    t = threading.Thread(target=_run_script_job, args=(job_id, script_path, ip, port))
+    t.daemon = True
+    t.start()
+
+    return jsonify({"ok": True, "job_id": job_id})
 
 
 if __name__ == "__main__":

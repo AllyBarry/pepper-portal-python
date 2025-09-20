@@ -54,3 +54,7 @@ The `./src` directory is mounted in the container and updates in real-time, allo
 - [NAOqi Getting Started Guide](http://doc.aldebaran.com/2-5/getting_started/index.html)
 - [Python SDK Documentation](http://doc.aldebaran.com/2-5/dev/python/intro_python.html)
 - [qicli Command Reference](http://doc.aldebaran.com/2-5/dev/libqi/guide/qicli.html)
+
+## TODO
+- Debug scene json
+- Make json scene GUI

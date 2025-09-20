@@ -1,0 +1,17 @@
+[
+  {
+    "audiofile": "intro.wav",
+    "time": 0.0,
+    "action": "say",
+    "text": "Welcome!",
+    "animation": "animations/Stand/Gestures/Hey_4"
+  },
+  {
+    "audiofile": "intro.wav",
+    "time": 2.5,
+    "action": "say",
+    "text": "Let me show you something.",
+    "animation": "animations/Stand/Gestures/ShowSky_5"
+  }
+]
+    

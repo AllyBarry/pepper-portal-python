@@ -625,7 +625,86 @@
       };
     }
 
+    // for script running
+    async function saveScene() {
+      const name = document.getElementById("sceneName").value.trim();
+      const raw = document.getElementById("sceneSteps").value.trim();
+      const status = document.getElementById("sceneStatus");
+      if (!name || !raw) {
+        status.innerHTML = '<span class="err">Scene name and steps required.</span>';
+        return;
+      }
+
+      try {
+        const steps = JSON.parse(raw);
+        const res = await postJSON("/api/save-scene", {
+          name: name,
+          steps: steps
+        });
+        status.innerHTML = '<span class="ok">Scene saved as ' + res.filename + '</span>';
+      } catch (e) {
+        status.innerHTML = '<span class="err">' + e.message + '</span>';
+      }
+    }
+
+    async function runScene() {
+      const ip = document.getElementById("pepperIp").value.trim();
+      const port = document.getElementById("pepperPort").value.trim() || "9559";
+      const name = document.getElementById("sceneName").value.trim();
+      const status = document.getElementById("sceneStatus");
+
+      if (!ip || !name) {
+        status.innerHTML = '<span class="err">Pepper IP and scene name required.</span>';
+        return;
+      }
+
+      try {
+        const res = await postJSON("/api/run-scene", {
+          ip: ip,
+          port: parseInt(port),
+          name: name
+        });
+        status.innerHTML = '<span class="ok">Scene started.</span>';
+      } catch (e) {
+        status.innerHTML = '<span class="err">' + e.message + '</span>';
+      }
+    }
+
   </script>
 </body>
+
+<div class="card">
+  <h2>Create Scene JSON</h2>
+  <div>
+    <label>Script Name</label>
+    <input id="sceneName" placeholder="e.g., demo_scene" />
+  </div>
+  <div>
+    <label>Scene Steps (JSON array)</label>
+    <textarea id="sceneSteps" rows="10" style="width:100%; font-family:monospace">
+[
+  {
+    "audiofile": "intro.wav",
+    "time": 0.0,
+    "action": "say",
+    "text": "Welcome!",
+    "animation": "animations/Stand/Gestures/Hey_4"
+  },
+  {
+    "audiofile": "intro.wav",
+    "time": 2.5,
+    "action": "say",
+    "text": "Let me show you something.",
+    "animation": "animations/Stand/Gestures/ShowSky_5"
+  }
+]
+    </textarea>
+  </div>
+  <div style="margin-top:1rem">
+    <button onclick="saveScene()">Save Scene JSON</button>
+    <button onclick="runScene()">Run Scene</button>
+  </div>
+  <div id="sceneStatus" class="muted" style="margin-top:.5rem"></div>
+</div>
 
 </html>
