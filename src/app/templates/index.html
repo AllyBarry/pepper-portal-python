@@ -164,6 +164,9 @@
 
   <div class="card">
     <h2>Robot Modes</h2>
+    <div style="margin-bottom:.5rem">
+      <button id="btnTogglePolling" onclick="togglePolling()">Stop Polling</button>
+    </div>
     <div class="row">
       <div>
         <label>Sleep Mode</label>
@@ -624,6 +627,23 @@
         startModePolling();
       };
     }
+
+    // ---- Polling toggle ----
+    let pollingEnabled = true;
+    function togglePolling() {
+      pollingEnabled = !pollingEnabled;
+      const btn = document.getElementById('btnTogglePolling');
+      btn.textContent = pollingEnabled ? 'Stop Polling' : 'Start Polling';
+      if (pollingEnabled) { startModePolling(); }
+      else if (modePollTimer) { clearInterval(modePollTimer); modePollTimer = null; }
+    }
+
+    // modify fetchModeStatus to respect pollingEnabled
+    const _origFetchModeStatus = fetchModeStatus;
+    fetchModeStatus = async function () {
+      if (!pollingEnabled) return;
+      return _origFetchModeStatus();
+    };
 
   </script>
 </body>
