@@ -1,17 +1,25 @@
-[
-  {
-    "audiofile": "intro.wav",
-    "time": 0.0,
-    "action": "say",
-    "text": "Welcome!",
-    "animation": "animations/Stand/Gestures/Hey_4"
-  },
-  {
-    "audiofile": "intro.wav",
-    "time": 2.5,
-    "action": "say",
-    "text": "Let me show you something.",
-    "animation": "animations/Stand/Gestures/ShowSky_5"
-  }
-]
-    
+{
+  "script_name": "DemoScript",
+  "scene": [
+    {
+      "audiofile": "greeting.wav",
+      "time": 0.0,
+      "action": "say",
+      "text": "Hello there!",
+      "animation": "animations/Stand/Gestures/Hey_1"
+    },
+    {
+      "audiofile": "greeting.wav",
+      "time": 10.0,
+      "action": "run",
+      "animation": "animations/Stand/Gestures/ShowSky_5"
+    },
+    {
+      "audiofile": "greeting.wav",
+      "time": 20.0,
+      "action": "say",
+      "text": "This was a simple test."
+    }
+  ]
+}
+

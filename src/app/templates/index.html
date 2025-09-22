@@ -683,20 +683,25 @@
     <label>Scene Steps (JSON array)</label>
     <textarea id="sceneSteps" rows="10" style="width:100%; font-family:monospace">
 [
-  {
-    "audiofile": "intro.wav",
-    "time": 0.0,
-    "action": "say",
-    "text": "Welcome!",
-    "animation": "animations/Stand/Gestures/Hey_4"
-  },
-  {
-    "audiofile": "intro.wav",
-    "time": 2.5,
-    "action": "say",
-    "text": "Let me show you something.",
-    "animation": "animations/Stand/Gestures/ShowSky_5"
-  }
+    { "audiofile": "greeting.wav", "time": 0.0,
+      "action": "say", "text": "Hello there!" },
+    { "audiofile": "greeting.wav", "time": 0.0,
+      "action": "run", "animation": "animations/Stand/Gestures/Hey_4" },
+
+    { "audiofile": "greeting.wav", "time": 5.0,
+      "action": "say", "text": "Let me show you something interesting." },
+    { "audiofile": "greeting.wav", "time": 5.0,
+      "action": "run", "animation": "animations/Stand/Gestures/ShowSky_5" },
+
+    { "audiofile": "greeting.wav", "time": 10,
+      "action": "say", "text": "Our ancestors used tools like this." },
+    { "audiofile": "greeting.wav", "time": 10,
+      "action": "run", "animation": "animations/Stand/Gestures/Give_4" },
+
+    { "audiofile": "greeting.wav", "time": 15,
+      "action": "say", "text": "And that is how it all began." },
+    { "audiofile": "greeting.wav", "time": 15,
+      "action": "run", "animation": "animations/Stand/Gestures/Explain_3" }
 ]
     </textarea>
   </div>

@@ -68,10 +68,10 @@ def get_session(ip, port=9559):
         # NAOqi 2.5 provides isConnected()
         if hasattr(sess, "isConnected"):
             if not sess.isConnected():
-                sess.connect("tcp://%s:%s" % (ip, port))
+                sess.connect("tcp://{}:{}".format(ip, port))
         else:
             # Fallback for older bindings: try connect and ignore "already connected"
-            sess.connect("tcp://%s:%s" % (ip, port))
+            sess.connect("tcp://{}:{}".format(ip, port))
     except RuntimeError as e:
         if "already connected" not in str(e).lower():
             raise

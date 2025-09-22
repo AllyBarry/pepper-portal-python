@@ -1,49 +1,109 @@
-import qi
+# controller.py (patched)
 
+# -*- coding: utf-8 -*-
+import os
+import traceback
+try:
+    import qi
+except ImportError:
+    qi = None
 
-class PepperController:
-    def __init__(self, ip="127.0.0.1", port=9559):
-        print(f"[PepperController] Connecting to {ip}:{port}...")
-        self.session = qi.Session()
-        self.session.connect(f"tcp://{ip}:{port}")
+_sessions = {}
 
-        print("[PepperController] Connected. Initializing services...")
+def _log(msg, level="INFO", verbose=True):
+    if not verbose:
+        return
+    # ASCII-safe: avoid non-ascii symbols, encode defensively on Py2
+    try:
+        # Py2: ensure str for stdout
+        if isinstance(msg, unicode):  # noqa
+            msg = msg.encode("utf-8")
+    except NameError:
+        pass
+    print("[CONTROLLER][%s] %s" % (level, msg))
+
+def get_session(ip, port=9559):
+    if qi is None:
+        raise RuntimeError("NAOqi 'qi' module not found. Set PYTHONPATH to SDK.")
+    key = "%s:%s" % (ip, port)
+    sess = _sessions.get(key)
+    if sess is None:
+        sess = qi.Session()
+        _sessions[key] = sess
+    try:
+        if hasattr(sess, "isConnected") and not sess.isConnected():
+            sess.connect("tcp://{}:{}".format(ip, port))
+        else:
+            sess.connect("tcp://{}:{}".format(ip, port))
+    except RuntimeError as e:
+        if "already connected" not in str(e).lower():
+            raise
+    return sess
+
+def reset_session(ip=None, port=9559, verbose=True):
+    if ip is None:
+        _sessions.clear()
+        _log("All cached sessions reset", "INFO", verbose)
+        return
+    key = "%s:%s" % (ip, port)
+    sess = _sessions.pop(key, None)
+    if sess is not None:
+        try:
+            sess.close()
+        except Exception:
+            pass
+    _log("Session reset for %s" % key, "INFO", verbose)
+
+class PepperController(object):
+    def __init__(self, ip, port=9559, verbose=True, reset=False):
+        self.ip = ip
+        self.port = port
+        self.verbose = verbose
+        if reset:
+            reset_session(ip, port, verbose=verbose)
+        self.session = get_session(ip, port)
+        # Fetch NAOqi services ONCE
+        self.tts   = self.session.service("ALTextToSpeech")
         self.audio = self.session.service("ALAudioPlayer")
-        self.anim = self.session.service("ALAnimationPlayer")
-        self.tts = self.session.service("ALTextToSpeech")
-        self.posture = self.session.service("ALRobotPosture")
-        print("[PepperController] Services ready.")
+        self.anim  = self.session.service("ALAnimationPlayer")
+        _log("Connected to Pepper at %s:%s" % (ip, port), "INFO", self.verbose)
 
-    def say(self, text, async_play=False):
-        if not isinstance(text, str):
-            print("[Warning] say() received non-string text")
-            return
-        print(f"[PepperController] Speaking: {text}")
-        if async_play:
-            self.tts.post.say(text)
-        else:
-            self.tts.say(text)
+    def _call(self, proxy, method, *args, **kwargs):
+        async_play = kwargs.pop("async_play", False)
+        try:
+            func = getattr(proxy, method)
+            if async_play:
+                _log("Calling %s.%s%r with _async=True" %
+                     (proxy.__class__.__name__, method, args), "INFO", self.verbose)
+                result = func(*args, _async=True)
+            else:
+                _log("Calling %s.%s%r" %
+                     (proxy.__class__.__name__, method, args), "INFO", self.verbose)
+                result = func(*args)
+            _log("%s.%s executed OK" % (proxy.__class__.__name__, method), "INFO", self.verbose)
+            return result
+        except Exception as e:
+            _log("%s.%s failed: %s | %s" %
+                 (proxy.__class__.__name__, method, e.__class__.__name__, e), "ERROR", self.verbose)
+            if self.verbose:
+                print(traceback.format_exc())
+            return None
 
-    def play_audio(self, path, async_play=False):
-        if not path.endswith(".m4a"):
-            print(f"[Warning] Audio file {path} does not appear to be a .m4a file")
-        print(f"[PepperController] Playing audio: {path}")
-        file_id = self.audio.loadFile(path)
-        if async_play:
-            self.audio.post.play(file_id)
-        else:
-            self.audio.play(file_id)
+    # --- Public API ---
+    def say(self, text, async_play=True):
+        _log('Request SAY: "%s"' % (text,), "INFO", self.verbose)
+        return self._call(self.tts, "say", text, async_play=async_play)
 
-    def play_animation(self, animation_name, async_play=False):
-        if not isinstance(animation_name, str):
-            print("[Warning] play_animation() received invalid animation name")
-            return
-        print(f"[PepperController] Running animation: {animation_name}")
-        if async_play:
-            self.anim.post.run(animation_name)
-        else:
-            self.anim.run(animation_name)
+    def play_animation(self, name, async_play=True):
+        _log("Request ANIMATION: %s" % (name,), "INFO", self.verbose)
+        return self._call(self.anim, "run", name, async_play=async_play)
 
-    def set_posture(self, posture_name="StandInit"):
-        print(f"[PepperController] Setting posture to: {posture_name}")
-        self.posture.goToPosture(posture_name, 0.8)
+    def play_audio(self, path, async_play=True):
+        # Normalize to robot Linux-style path and warn if it looks local
+        norm = path.replace("\\", "/")
+        if not norm.startswith("/"):
+            _log("Audio path is not absolute on robot: %s (expected /home/nao/...)" %
+                 norm, "WARN", self.verbose)
+        _log("Request AUDIO: %s" % norm, "INFO", self.verbose)
+        return self._call(self.audio, "playFile", norm, async_play=async_play)
+
