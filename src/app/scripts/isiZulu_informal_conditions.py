@@ -5,11 +5,11 @@ import os, argparse, qi, time
 HOME_AUDIO_PATH = "/data/home/nao/.local/share/wav/"
 
 audio_files = {
-    "1": "Vicky_Pepper_Project_2025/Formal Conditions/IsiZulu/Formal Zulu_Formatted/1_Formal Zulu.wav",
-    "2": "Vicky_Pepper_Project_2025/Formal Conditions/IsiZulu/Formal Zulu_Formatted/2_Formal Zulu.wav",
-    "3": "Vicky_Pepper_Project_2025/Formal Conditions/IsiZulu/Formal Zulu_Formatted/3_Formal Zulu.wav",
-    "4": "Vicky_Pepper_Project_2025/Formal Conditions/IsiZulu/Formal Zulu_Formatted/4_Formal Zulu.wav",
-    "5": "Vicky_Pepper_Project_2025/Formal Conditions/IsiZulu/Formal Zulu_Formatted/5_Formal Zulu.wav",
+    "1": "Vicky_Pepper_Project_2025/Informal Conditions/IsiZulu/Informal Zulu_Format/1_Informal Zulu.wav",
+    "2": "Vicky_Pepper_Project_2025/Informal Conditions/IsiZulu/Informal Zulu_Format/2_Informal Zulu.wav",
+    "3": "Vicky_Pepper_Project_2025/Informal Conditions/IsiZulu/Informal Zulu_Format/3_Informal Zulu.wav",
+    "4": "Vicky_Pepper_Project_2025/Informal Conditions/IsiZulu/Informal Zulu_Format/4_Informal Zulu.wav",
+    "5": "Vicky_Pepper_Project_2025/Informal Conditions/IsiZulu/Informal Zulu_Format/5_Informal Zulu.wav",
 }
 
 def main():
@@ -35,32 +35,42 @@ def main():
     # Audio File #1
     # play the audio, this will return right away
     future = audio_player_service.play(audio1, _async=True)
-    anim.run("animations/Stand/Emotions/Neutral/Embarrassed_1")
+    anim.run("animations/Stand/Gestures/Hey_4")
     # wait the end of the audio
     future.value()
 
     # Audio File #2
     print("Playing Audio File 2...")
     future = audio_player_service.play(audio2, _async=True)
-    # anim.run("animations/Stand/Emotions/Neutral/Embarrassed_1")
+    anim.run("animations/Stand/Gestures/ShowSky_5")
+    anim.run("animations/Stand/Gestures/Explain_4")
+    anim.run("animations/Stand/Gestures/Explain_5")
     # wait the end of the audio
     future.value()
 
     # Audio File #3
     future = audio_player_service.play(audio3, _async=True)
-    # anim.run("animations/Stand/Emotions/Neutral/Embarrassed_1")
+    anim.run("animations/Stand/Gestures/Give_5")
+    anim.run("animations/Stand/Gestures/Give_3")
+    anim.run("animations/Stand/Gestures/Give_4")
+    anim.run("animations/Stand/Gestures/Enthusiastic_5")
     # wait the end of the audio
     future.value()
 
     # Audio File #4
     future = audio_player_service.play(audio4, _async=True)
-    # anim.run("animations/Stand/Emotions/Neutral/Embarrassed_1")
+    anim.run("animations/Stand/Gestures/Explain_8")
+    anim.run("animations/Stand/Gestures/Explain_11")
+    anim.run("animations/Stand/Gestures/Thinking_1")
+    anim.run("animations/Stand/Gestures/Explain_3")
     # wait the end of the audio
     future.value()
 
     # Audio File #5
     future = audio_player_service.play(audio5, _async=True)
-    anim.run("animations/Stand/Emotions/Neutral/Embarrassed_1")
+    anim.run("animations/Stand/Gestures/Explain_8")
+    anim.run("animations/Stand/Gestures/Give_3")
+    anim.run("animations/Stand/Gestures/Explain_11")
     # wait the end of the audio
     future.value()
 
