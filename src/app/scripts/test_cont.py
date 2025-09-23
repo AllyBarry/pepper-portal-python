@@ -14,8 +14,9 @@ def test_all(controller):
 
     # 2. Play a simple animation
     print("Testing animation...")
-    controller.play_animation("animations/Stand/Gestures/Hey_4", async_play=True)
+    controller.play_animation("animations/Stand/Gestures/Hey_4", async_play=False)
 
+    time.sleep(1)
 
     # 3. Play a test audio file
     wav_path = "test.wav"

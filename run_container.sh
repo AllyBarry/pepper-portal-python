@@ -11,7 +11,6 @@ echo $DISPLAY
 
 docker rm pepper_portal
 docker run -it \
-
   -v "$(pwd)/src:/home/user/src" \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
