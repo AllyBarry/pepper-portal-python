@@ -40,7 +40,9 @@ except Exception as e:
 
 app = Flask(__name__)
 
-SCRIPTS_DIR = os.environ.get("SCRIPTS_DIR", os.path.join(os.path.dirname(__file__), "scripts"))
+SCRIPTS_DIR = os.environ.get(
+    "SCRIPTS_DIR", os.path.join(os.path.dirname(__file__), "scripts")
+)
 
 # --- Simple in-memory session cache per (ip, port) (optional) ---
 _sessions = {}
@@ -82,24 +84,31 @@ def with_services(ip, port=9559):
     anim = sess.service("ALAnimationPlayer")
     return audio, anim
 
-def _run_script_job(job_id, script_path, ip, port):
+
+def _run_script_job(job_id, script_path, ip, port, language):
     env = os.environ.copy()
     env["PEPPER_IP"] = ip
     env["PEPPER_PORT"] = str(port)
-    # Prefer the same Python used by Flask app; change to explicit path if needed.
-    cmd = [sys.executable, script_path, "--ip", ip, "--port", str(port)]
+    env["SCRIPT_LANG"] = language  # also available via env
+
+    cmd = [sys.executable, script_path, "--ip", ip, "--port", str(port), "--lang", language]
     try:
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+        with _jobs_lock:
+            _jobs[job_id]["process"] = p
+
         out, _ = p.communicate()
         output = out.decode("utf-8", "ignore") if not isinstance(out, str) else out
         rc = p.returncode
     except Exception as e:
         output = "Error: %s" % (str(e),)
         rc = 1
-    with _jobs_lock:
-        _jobs[job_id]["done"] = True
-        _jobs[job_id]["rc"] = rc
-        _jobs[job_id]["output"] = output
+    finally:
+        with _jobs_lock:
+            _jobs[job_id]["done"] = True
+            _jobs[job_id]["rc"] = rc
+            _jobs[job_id]["output"] = output
+            _jobs[job_id]["process"] = None
 
 
 
@@ -141,10 +150,10 @@ ANIMATIONS = [
     #  Emotions
     "animations/Stand/Emotions/Negative/Bored_1",
     "animations/Stand/Emotions/Neutral/Embarrassed_1",
-    "animations/Stand/Emotions/Positive/Happy_1", # Has noise
-    "animations/Stand/Emotions/Positive/Happy_2", # Has noise
-    "animations/Stand/Emotions/Positive/Happy_3", # Has noise
-    "animations/Stand/Emotions/Positive/Happy_4", # Has noise
+    "animations/Stand/Emotions/Positive/Happy_1",  # Has noise
+    "animations/Stand/Emotions/Positive/Happy_2",  # Has noise
+    "animations/Stand/Emotions/Positive/Happy_3",  # Has noise
+    "animations/Stand/Emotions/Positive/Happy_4",  # Has noise
     "animations/Stand/Emotions/Positive/Hysterical_1",
     "animations/Stand/Emotions/Positive/Peaceful_1",
     #   Gestures
@@ -282,7 +291,6 @@ ANIMATIONS_GROUPED = {
     ],
 }
 
-
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html", animations=ANIMATIONS)
@@ -372,6 +380,7 @@ def api_stop_animations():
         pass
     return jsonify({"ok": True})
 
+
 @app.route("/api/scripts", methods=["GET"])
 def api_scripts():
     if not os.path.isdir(SCRIPTS_DIR):
@@ -383,6 +392,7 @@ def api_scripts():
     names.sort()
     return jsonify({"ok": True, "scripts": names})
 
+
 @app.route("/api/run-script", methods=["POST"])
 @json_endpoint
 def api_run_script():
@@ -390,22 +400,74 @@ def api_run_script():
     ip = (data.get("ip") or "").strip()
     port = int(data.get("port", 9559))
     script = (data.get("script") or "").strip()
+    language = (data.get("language") or "English").strip()
+
     if not ip or not script:
         return jsonify({"ok": False, "error": "Provide 'ip' and 'script'"}), 400
 
     spath = os.path.abspath(os.path.join(SCRIPTS_DIR, script))
-    if not spath.startswith(os.path.abspath(SCRIPTS_DIR) + os.sep) or not os.path.isfile(spath):
+    if not spath.startswith(
+        os.path.abspath(SCRIPTS_DIR) + os.sep
+    ) or not os.path.isfile(spath):
         return jsonify({"ok": False, "error": "Invalid script"}), 400
 
     job_id = str(next(_job_counter))
     with _jobs_lock:
-        _jobs[job_id] = {"script": script, "done": False, "rc": None, "output": ""}
+        _jobs[job_id] = {
+            "script": script,
+            "done": False,
+            "rc": None,
+            "output": "",
+            "process": None,
+        }
 
-    t = threading.Thread(target=_run_script_job, args=(job_id, spath, ip, port))
+    t = threading.Thread(
+        target=_run_script_job, args=(job_id, spath, ip, port, language)
+    )
     t.daemon = True
     t.start()
 
     return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.route("/api/stop-script", methods=["POST"])
+@json_endpoint
+def api_stop_script():
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    job_id = (data.get("job_id") or "").strip()
+    audio, anim = with_services(ip, port)
+    audio.stopAll()
+    anim.stopAll()
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return jsonify({"ok": False, "error": "Unknown job_id"}), 404
+        p = job.get("process")
+
+    if p and p.poll() is None:
+        try:
+            # graceful first
+            p.terminate()
+            try:
+                p.wait(timeout=2)
+            except Exception:
+                pass
+            if p.poll() is None:
+                p.kill()
+        except Exception:
+            pass
+
+        with _jobs_lock:
+            job["done"] = True
+            job["rc"] = -9
+            job["output"] = (job.get("output") or "") + "\n[stopped by user]"
+            job["process"] = None
+        return jsonify({"ok": True, "stopped": True})
+
+    return jsonify({"ok": True, "stopped": False})
+
 
 @app.route("/api/script-status", methods=["GET"])
 def api_script_status():
@@ -415,7 +477,15 @@ def api_script_status():
         if not state:
             return jsonify({"ok": False, "error": "Unknown job_id"}), 404
         # Return a copy
-        return jsonify({"ok": True, "done": state["done"], "rc": state["rc"], "output": state["output"]})
+        return jsonify(
+            {
+                "ok": True,
+                "done": state["done"],
+                "rc": state["rc"],
+                "output": state["output"],
+            }
+        )
+
 
 @app.route("/api/mode-status", methods=["POST"])
 @json_endpoint
@@ -430,7 +500,9 @@ def api_mode_status():
     # Awake / sleep (motors)
     motion = sess.service("ALMotion")
     try:
-        is_awake = bool(motion.robotIsWakeUp())  # True if motors on (wakeUp), False if rest
+        is_awake = bool(
+            motion.robotIsWakeUp()
+        )  # True if motors on (wakeUp), False if rest
     except Exception:
         # Fallback: if robotIsWakeUp missing, infer from stiffness
         try:
@@ -454,12 +526,15 @@ def api_mode_status():
         except Exception:
             pass
 
-    return jsonify({
-        "ok": True,
-        "is_awake": is_awake,
-        "animation_enabled": animation_enabled,
-        "life_state": life_state,
-    })
+    return jsonify(
+        {
+            "ok": True,
+            "is_awake": is_awake,
+            "animation_enabled": animation_enabled,
+            "life_state": life_state,
+        }
+    )
+
 
 @app.route("/api/sleep", methods=["POST"])
 @json_endpoint
@@ -469,14 +544,19 @@ def api_sleep():
     port = int(data.get("port", 9559))
     action = (data.get("action") or "").strip().lower()
     if not ip or action not in ("rest", "wake"):
-        return jsonify({"ok": False, "error": "Provide 'ip' and action in {'rest','wake'}"}), 400
+        return (
+            jsonify(
+                {"ok": False, "error": "Provide 'ip' and action in {'rest','wake'}"}
+            ),
+            400,
+        )
 
     sess = get_session(ip, port)
     motion = sess.service("ALMotion")
     if action == "rest":
-        motion.rest()     # motors off / relaxed
+        motion.rest()  # motors off / relaxed
     else:
-        motion.wakeUp()   # motors on / ready
+        motion.wakeUp()  # motors on / ready
     return jsonify({"ok": True, "action": action})
 
 
@@ -507,7 +587,6 @@ def api_animation_mode():
         except Exception:
             pass
     return jsonify({"ok": True, "enabled": enabled})
-
 
 
 @app.route("/health", methods=["GET"])

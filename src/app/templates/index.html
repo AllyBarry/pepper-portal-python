@@ -165,7 +165,7 @@
   <div class="card">
     <h2>Robot Modes</h2>
     <div style="margin-bottom:.5rem">
-      <button id="btnTogglePolling" onclick="togglePolling()">Stop Polling</button>
+      <button id="btnCheckSleepMode" onclick="fetchModeStatus()">Check Status</button>
     </div>
     <div class="row">
       <div>
@@ -173,13 +173,6 @@
         <div class="row" style="align-items:center">
           <button id="btnSleepOn" onclick="setSleepMode(true)">Activate Sleep</button>
           <button id="btnSleepOff" onclick="setSleepMode(false)">Deactivate Sleep (Wake)</button>
-        </div>
-      </div>
-      <div>
-        <label>Animation Mode</label>
-        <div class="row" style="align-items:center">
-          <button id="btnAnimOn" onclick="setAnimationMode(true)">Activate Animation Mode</button>
-          <button id="btnAnimOff" onclick="setAnimationMode(false)">Deactivate Animation Mode</button>
         </div>
       </div>
     </div>
@@ -190,6 +183,18 @@
     <h2>Scripts</h2>
     <p class="muted">These are Python scripts in the app's <code>scripts/</code> folder. Click to run. The page will
       pass Pepper IP/port to the script.</p>
+    <div class="row" style="margin-bottom:1rem">
+      <div>
+        <label for="scriptsLang">Language</label>
+        <select id="scriptsLang">
+          <option value="English" selected>English</option>
+          <option value="IsiZulu">IsiZulu</option>
+        </select>
+      </div>
+      <div style="align-self:end">
+        <button id="btnStopScript" onclick="stopScript()" disabled>Stop Running Script</button>
+      </div>
+    </div>
     <div class="row">
       <div>
         <label>Scripts</label>
@@ -441,20 +446,10 @@
       } catch (e) { modeStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Sleep/Wake error: ' + e.message); }
     }
 
-    async function setAnimationMode(enabled) {
-      const ip = ipInput.value.trim();
-      const port = (portInput.value.trim() || '9559');
-      if (!ip) { modeStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
-      modeStatus.textContent = enabled ? 'Enabling animation mode…' : 'Disabling animation mode…';
-      try {
-        await postJSON('/api/animation-mode', { ip, port: Number(port), enabled: !!enabled });
-        modeStatus.innerHTML = '<span class="ok">Animation mode ' + (enabled ? 'enabled.' : 'disabled.') + '</span>';
-        log('Animation mode ' + (enabled ? 'enabled' : 'disabled'));
-      } catch (e) { modeStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Animation mode error: ' + e.message); }
-    }
-
     // ----- Scripts UI -----
     let scriptsPollTimer = null;
+    let currentJobId = null; // active script job id
+
 
     async function fetchScripts() {
       const box = document.getElementById('scriptsList');
@@ -477,23 +472,31 @@
       } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
     }
 
+
     async function runScript(name, btn) {
       const ip = ipInput.value.trim();
       const port = (portInput.value.trim() || '9559');
+      const lang = document.getElementById('scriptsLang').value || 'English';
       const status = document.getElementById('scriptsStatus');
       const out = document.getElementById('scriptsOutput');
+      const stopBtn = document.getElementById('btnStopScript');
       if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
       btn.disabled = true;
-      status.textContent = 'Running ' + name + '…';
+      stopBtn.disabled = true;
+      status.textContent = 'Running ' + name + '… (Language: ' + lang + ')';
       out.textContent = '';
       try {
-        const res = await postJSON('/api/run-script', { ip, port: Number(port), script: name });
+        const res = await postJSON('/api/run-script', { ip, port: Number(port), script: name, language: lang });
         const job = res.job_id;
+        currentJobId = job;
+        stopBtn.disabled = false;
         await pollScript(job, status, out, btn);
-      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; btn.disabled = false; }
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; btn.disabled = false; currentJobId = null; stopBtn.disabled = true; }
     }
 
+
     async function pollScript(job_id, statusEl, outEl, btn) {
+      const stopBtn = document.getElementById('btnStopScript');
       async function once() {
         try {
           const res = await fetch('/api/script-status?job_id=' + encodeURIComponent(job_id));
@@ -503,11 +506,15 @@
           if (data.done) {
             statusEl.innerHTML = data.rc === 0 ? '<span class="ok">Script finished.</span>' : '<span class="err">Script exited with code ' + data.rc + '</span>';
             btn.disabled = false;
+            currentJobId = null;
+            stopBtn.disabled = true;
             return true;
           }
         } catch (e) {
           statusEl.innerHTML = '<span class="err">' + e.message + '</span>';
           btn.disabled = false;
+          currentJobId = null;
+          stopBtn.disabled = true;
           return true;
         }
         return false;
@@ -521,14 +528,25 @@
     // Fetch scripts on load
     window.addEventListener('load', function () { fetchScripts(); });
 
+    async function stopScript() {
+      const status = document.getElementById('scriptsStatus');
+      const stopBtn = document.getElementById('btnStopScript');
+      if (!currentJobId) { status.innerHTML = '<span class="err">No running script.</span>'; return; }
+      stopBtn.disabled = true;
+      status.textContent = 'Stopping script…';
+      try {
+        const res = await postJSON('/api/stop-script', { job_id: currentJobId });
+        if (res.stopped) { status.innerHTML = '<span class="ok">Stop signal sent.</span>'; }
+        else { status.innerHTML = '<span class="muted">Script was not running.</span>'; }
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
+
     // ----- Periodic mode status poll -----
     async function pollModes() {
       const ip = ipInput.value.trim();
       const port = (portInput.value.trim() || '9559');
       const btnSleepOn = document.getElementById('btnSleepOn');
       const btnSleepOff = document.getElementById('btnSleepOff');
-      const btnAnimOn = document.getElementById('btnAnimOn');
-      const btnAnimOff = document.getElementById('btnAnimOff');
       if (!ip) return;
       try {
         const res = await fetch('/api/mode-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip, port: Number(port) }) });
@@ -542,28 +560,17 @@
             btnSleepOn.disabled = false;
             btnSleepOff.disabled = true;
           }
-          // Animation mode
-          if (data.animation_enabled) {
-            btnAnimOn.disabled = true;
-            btnAnimOff.disabled = false;
-          } else {
-            btnAnimOn.disabled = false;
-            btnAnimOff.disabled = true;
-          }
         }
       } catch (e) { /* ignore polling errors */ }
     }
     setInterval(pollModes, 5000);
 
     // ---- Mode polling ----
-    let modePollTimer = null;
 
     function applyModeUi(state) {
       const sleepOn = document.getElementById('btnSleepOn');
       const sleepOff = document.getElementById('btnSleepOff');
-      const animOn = document.getElementById('btnAnimOn');
-      const animOff = document.getElementById('btnAnimOff');
-      if (!sleepOn || !sleepOff || !animOn || !animOff) return;
+      if (!sleepOn || !sleepOff) return;
 
       // Sleep/Wake
       if (state && typeof state.is_awake === 'boolean') {
@@ -572,17 +579,11 @@
         sleepOff.disabled = state.is_awake ? true : false;    // if awake    -> disable Wake (already awake)
       }
 
-      // Animation mode (Autonomous Life / Awareness)
-      if (state && typeof state.animation_enabled === 'boolean') {
-        animOn.disabled = state.animation_enabled;  // if already enabled, grey ON
-        animOff.disabled = !state.animation_enabled; // if disabled, grey OFF
-      }
-
       // Optional status text
       const modeStatusEl = document.getElementById('modeStatus');
       if (modeStatusEl && state) {
         const life = state.life_state || 'unknown';
-        modeStatusEl.textContent = 'Awake: ' + (state.is_awake ? 'yes' : 'no') + '  •  Animation mode: ' + (state.animation_enabled ? 'enabled' : 'disabled') + '  •  Life: ' + life;
+        modeStatusEl.textContent = 'Awake: ' + (state.is_awake ? 'yes' : 'no');
       }
     }
 
@@ -596,12 +597,6 @@
       } catch (e) { /* ignore transient errors */ }
     }
 
-    function startModePolling() {
-      if (modePollTimer) clearInterval(modePollTimer);
-      fetchModeStatus();
-      modePollTimer = setInterval(fetchModeStatus, 3000);
-    }
-
     // Patch existing actions to refresh UI after completion
     const _origSetSleepMode = typeof setSleepMode === 'function' ? setSleepMode : null;
     if (_origSetSleepMode) {
@@ -610,40 +605,6 @@
         fetchModeStatus();
       };
     }
-    const _origSetAnimationMode = typeof setAnimationMode === 'function' ? setAnimationMode : null;
-    if (_origSetAnimationMode) {
-      window.setAnimationMode = async function (enabled) {
-        await _origSetAnimationMode(enabled);
-        fetchModeStatus();
-      };
-    }
-
-    // start polling after page init and on successful connect
-    window.addEventListener('load', function () { startModePolling(); });
-    const _origTestConnect = typeof testConnect === 'function' ? testConnect : null;
-    if (_origTestConnect) {
-      window.testConnect = async function () {
-        await _origTestConnect();
-        startModePolling();
-      };
-    }
-
-    // ---- Polling toggle ----
-    let pollingEnabled = true;
-    function togglePolling() {
-      pollingEnabled = !pollingEnabled;
-      const btn = document.getElementById('btnTogglePolling');
-      btn.textContent = pollingEnabled ? 'Stop Polling' : 'Start Polling';
-      if (pollingEnabled) { startModePolling(); }
-      else if (modePollTimer) { clearInterval(modePollTimer); modePollTimer = null; }
-    }
-
-    // modify fetchModeStatus to respect pollingEnabled
-    const _origFetchModeStatus = fetchModeStatus;
-    fetchModeStatus = async function () {
-      if (!pollingEnabled) return;
-      return _origFetchModeStatus();
-    };
 
   </script>
 </body>
