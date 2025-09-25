@@ -34,12 +34,12 @@ ADD ${sdk_version}.tar.gz /naoqi/
 
 # Copy the boost fix
 # See https://community.ald.softbankrobotics.com/en/forum/import-issue-pynaoqi-214-ubuntu-7956
-COPY boost/* /naoqi/${sdk_version}/
+COPY boost/ /naoqi/${sdk_version}/
 
-# Set the path to the SDK
-ENV PYTHONPATH=${PYTHONPATH}:/naoqi/${sdk_version}/lib/python2.7/site-packages/
-ENV PYTHONPATH=${PYTHONPATH}:/naoqi/${sdk_version}/
-ENV LD_LIBRARY_PATH="/naoqi/${sdk_version}"
+# Add the path to the SDK
+ENV PYTHONPATH=$PYTHONPATH:/naoqi/${sdk_version}/lib/python2.7/site-packages/
+ENV PYTHONPATH=$PYTHONPATH:/naoqi/${sdk_version}/
+ENV LD_LIBRARY_PATH=/naoqi/${sdk_version}
 
 # Install required packages
 RUN apt-get update && apt-get install -y python-pip \
@@ -52,7 +52,7 @@ WORKDIR /home/user
 
 ENV HOST=0.0.0.0
 ENV PORT=5000
-EXPOSE 5000 9559
+EXPOSE 5000
 
 ENV SCENES_DIR=src/scenes/
 

@@ -2,7 +2,7 @@
 import argparse
 import os
 import time
-from ..pepper_core import PepperController
+from pepper_core import PepperController
 
 
 def test_all(controller):
@@ -12,19 +12,16 @@ def test_all(controller):
     print("Testing speech...")
     controller.say("Hello! This is a test of my speech system.", async_play=True)
 
-    # 2. Play a simple animation
-    print("Testing animation...")
-    controller.play_animation("animations/Stand/Gestures/Hey_4", async_play=False)
-
     time.sleep(1)
-
+    # 2. Play a simple animation
     # 3. Play a test audio file
-    wav_path = "test.wav"
-    if os.path.exists(wav_path):
-        print("Testing audio playback with {}".format(wav_path))
-        controller.play_audio(wav_path, async_play=False)
-    else:
-        print("Skipping audio test. '{}' not found.".format(wav_path))
+    base = "/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Informal Conditions/English/Informal English_Formatted/"
+    wav_path = "1_Informal English.wav"
+    print("Testing audio playback with {}".format(base+wav_path))
+    controller.play_audio(base+wav_path, async_play=True)
+    print("Testing animation...")
+    controller.play_animation("animations/Stand/Gestures/Hey_4", async_play=True)
+
 
     print("\nAll basic tests complete.")
 

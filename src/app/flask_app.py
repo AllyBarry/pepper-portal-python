@@ -45,7 +45,7 @@ if BASE_DIR not in sys.path:
 
 # If you have a pepper_core module with PepperController, you can import it.
 # with_services below uses the session directly, so pepper_core is optional for the web API.
-from pepper_core import PepperController,PepperScripter  # optional; used by run-scene
+from pepper_core import PepperController, PepperScripter  # optional; used by run-scene
 
 
 app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"), static_folder=os.path.join(BASE_DIR, "static"))
