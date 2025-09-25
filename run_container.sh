@@ -6,11 +6,15 @@
 # xhost -local:docker
 
 # Change to 'run -d' to run in detached mode.
+echo $(pwd)/src
+echo $DISPLAY 
+
+docker rm pepper_portal
 docker run -it \
-  -v `pwd`/src:/home/user/src \
+  -v "$(pwd)/src:/home/user/src" \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   --name pepper_portal \
   -w /home/user \
   -p 8080:5000 \
-  pepper-portal-python:latest 
+  pepper-portal-python:latest

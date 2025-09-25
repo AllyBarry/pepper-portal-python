@@ -54,3 +54,57 @@ The `./src` directory is mounted in the container and updates in real-time, allo
 - [NAOqi Getting Started Guide](http://doc.aldebaran.com/2-5/getting_started/index.html)
 - [Python SDK Documentation](http://doc.aldebaran.com/2-5/dev/python/intro_python.html)
 - [qicli Command Reference](http://doc.aldebaran.com/2-5/dev/libqi/guide/qicli.html)
+
+# 🐳 Run x86 (NAOqi) Docker Images on Raspberry Pi (ARM)
+
+Raspberry Pi = ARM (`arm64/v8`)  
+NAOqi SDK = x86 only (`linux/386` or `linux/amd64`)  
+
+To make this work, enable QEMU + Docker Buildx.
+
+---
+
+## 1. Enable QEMU Emulation
+
+```bash
+docker run --rm --privileged tonistiigi/binfmt --install all
+```
+
+Verify:
+
+```bash
+ls /proc/sys/fs/binfmt_misc/
+# should list qemu-amd64, qemu-i386, etc.
+
+docker run --rm --platform linux/amd64 alpine uname -m
+# Expected: x86_64
+
+docker run --rm --platform linux/386 alpine uname -m
+# Expected: i686
+```
+
+---
+
+## 2. Ensure Buildx is Available
+
+```bash
+docker buildx version
+# should show a version string
+```
+
+If needed, create a builder:
+
+```bash
+docker buildx create --use --name mybuilder
+docker buildx inspect --bootstrap
+```
+
+---
+
+## 3. Build Image for amd64 
+
+For 64-bit NAOqi (amd64):
+
+```bash
+docker buildx build --platform linux/amd64 --load -t pepper-portal-wits .
+```

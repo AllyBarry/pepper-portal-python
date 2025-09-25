@@ -1,0 +1,19 @@
+{
+  "scene": [
+    {
+      "text": "Well hello there", 
+      "wait": 0.5, 
+      "time": 0
+    }, 
+    {
+      "animation": "animations/Stand/Gestures/Hey_4", 
+      "wait": 1, 
+      "time": 1
+    }, 
+    {
+      "text": "All done.", 
+      "time": 1
+    }
+  ], 
+  "script_name": "Simple2"
+}
