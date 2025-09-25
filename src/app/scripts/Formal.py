@@ -62,7 +62,7 @@ def main():
     # Audio File #2
     print("Playing Audio File 2...")
     future = audio_player_service.play(audio2, _async=True)
-    # anim.run("animations/Stand/Emotions/Neutral/Embarrassed_1")
+    # anim.run("animations/Stand/Emotions/Neutral/Embarrassed_1/Explain_1")
     # wait the end of the audio
     future.value()
 

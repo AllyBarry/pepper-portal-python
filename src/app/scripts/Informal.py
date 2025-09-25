@@ -54,6 +54,10 @@ def main():
     # play the audio, this will return right away
     future = audio_player_service.play(audio1, _async=True)
     anim.run("animations/Stand/Gestures/Hey_4")
+    anim.run("animations/Stand/Gestures/Give_3")
+    anim.run("animations/Stand/Gestures/Give_5")
+    anim.run("animations/Stand/Gestures/Give_3")
+    anim.run("animations/Stand/Gestures/Explain_8")
     # wait the end of the audio
     future.value()
 
@@ -71,7 +75,11 @@ def main():
     anim.run("animations/Stand/Gestures/Give_5")
     anim.run("animations/Stand/Gestures/Give_3")
     anim.run("animations/Stand/Gestures/Give_4")
-    anim.run("animations/Stand/Gestures/Enthusiastic_5")
+    anim.run("animations/Stand/Gestures/Give_3")
+    anim.run("animations/Stand/Gestures/Give_3")
+    anim.run("animations/Stand/Gestures/Excited_1")
+    # anim.run("animations/Stand/Gestures/Enthusiastic_5")
+    anim.run("animations/Stand/Gestures/Give_3")
     # wait the end of the audio
     future.value()
 
@@ -87,14 +95,21 @@ def main():
     # Audio File #5
     future = audio_player_service.play(audio5, _async=True)
     anim.run("animations/Stand/Gestures/Explain_8")
-    anim.run("animations/Stand/Gestures/Give_3")
+    anim.run("animations/Stand/Gestures/Far_1")
     anim.run("animations/Stand/Gestures/Explain_11")
+    anim.run("animations/Stand/Gestures/Give_5")
+    anim.run("animations/Stand/Gestures/Thinking_8")
+    anim.run("animations/Stand/Gestures/Give_3")
     # wait the end of the audio
     future.value()
 
     # Audio File #6
     future = audio_player_service.play(audio6, _async=True)
-    anim.run("animations/Stand/Gestures/Explain_8")
+    anim.run("animations/Stand/Gestures/Give_4")
+    anim.run("animations/Stand/Gestures/Thinking_8")
+    anim.run("animations/Stand/Gestures/Me_7")
+    anim.run("animations/Stand/Gestures/YouKnowWhat_5")
+    anim.run("animations/Stand/Gestures/Explain_11")
     # wait the end of the audio
     future.value()
 

@@ -558,11 +558,12 @@ def api_sleep():
     else:
         motion.wakeUp()  # motors on / ready
     return jsonify({"ok": True, "action": action})
-
+    
 
 @app.route("/api/animation-mode", methods=["POST"])
 @json_endpoint
 def api_animation_mode():
+    # TODO - http://doc.aldebaran.com/2-5/naoqi/interaction/autonomouslife-api.html
     data = request.get_json(force=True)
     ip = data.get("ip", "").strip()
     port = int(data.get("port", 9559))
