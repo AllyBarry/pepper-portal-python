@@ -1,0 +1,9 @@
+{
+  "script_name": "SimpleOne",
+  "scene": [
+    { "time": 0.0, "text": "Hello there!", "wait": 0.5 },
+    { "time": 1.0, "animation": "animations/Stand/Gestures/Hey_4", "wait": 1.0 },
+    { "time": 1.0, "text": "All done." }
+  ]
+}
+

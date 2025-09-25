@@ -1,4 +1,3 @@
-<!doctype html>
 <html lang="en">
 
 <head>
@@ -254,6 +253,61 @@
     <div id="animStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
 
+  <!-- ✨ NEW small section BEFORE logs: load & run saved scene, and an editor that can load a saved scene -->
+  <div class="card">
+    <h2>Create / Load Scene JSON</h2>
+
+    <div class="row">
+      <div>
+        <label for="sceneName">Script Name</label>
+        <input id="sceneName" placeholder="e.g., demo_scene" />
+      </div>
+      <div>
+        <label for="scenePicker">Load Saved Scene</label>
+        <div class="row" style="align-items:center">
+          <select id="scenePicker" onchange="loadScene()">
+            <option value="">-- Select a scene --</option>
+          </select>
+          <button onclick="refreshScenes()">Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div style="width:100%">
+        <label>Scene Steps (JSON array)</label>
+        <textarea id="sceneSteps" rows="10" style="width:100%; font-family:monospace">[
+    { "audiofile": "greeting.wav", "time": 0.0,
+      "action": "say", "text": "Hello there!" },
+    { "audiofile": "greeting.wav", "time": 0.0,
+      "action": "run", "animation": "animations/Stand/Gestures/Hey_4" },
+
+    { "audiofile": "greeting.wav", "time": 5.0,
+      "action": "say", "text": "Let me show you something interesting." },
+    { "audiofile": "greeting.wav", "time": 5.0,
+      "action": "run", "animation": "animations/Stand/Gestures/ShowSky_5" },
+
+    { "audiofile": "greeting.wav", "time": 10,
+      "action": "say", "text": "Our ancestors used tools like this." },
+    { "audiofile": "greeting.wav", "time": 10,
+      "action": "run", "animation": "animations/Stand/Gestures/Give_4" },
+
+    { "audiofile": "greeting.wav", "time": 15,
+      "action": "say", "text": "And that is how it all began." },
+    { "audiofile": "greeting.wav", "time": 15,
+      "action": "run", "animation": "animations/Stand/Gestures/Explain_3" }
+]</textarea>
+      </div>
+    </div>
+
+    <div style="margin-top:1rem">
+      <button onclick="saveScene()">Save Scene JSON</button>
+      <button onclick="runScene()">Run Scene</button>
+      <div id="sceneStatus" class="muted" style="margin-top:.5rem"></div>
+    </div>
+  </div>
+  <!-- ✨ END new small section -->
+
   <div class="card">
     <h2>Logs</h2>
     <div id="logs" class="stack" style="min-height:100px"></div>
@@ -293,6 +347,7 @@
       portInput.value = savedPort();
     }
 
+    // (duplicate name in your file; leaving your later postJSON intact)
     async function postJSON(url, data) {
       const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
       const json = await res.json();
@@ -368,7 +423,7 @@
     window.addEventListener('load', async () => {
       loadIp();
       if (!savedIp()) {
-        const ip = window.prompt('Enter Pepper IP (e.g., 192.168.1.6)');
+        const ip = window.prompt('Enter Pepper IP (e.g., 192.168.1.8)');
         const port = window.prompt('Enter NAOqi port', '9559');
         if (ip) { ipInput.value = ip.trim(); }
         if (port) { portInput.value = (port.trim() || '9559'); }
@@ -625,7 +680,7 @@
       };
     }
 
-    // for script running
+    // ----- Scene Save/Run helpers (already present in your file; kept as-is) -----
     async function saveScene() {
       const name = document.getElementById("sceneName").value.trim();
       const raw = document.getElementById("sceneSteps").value.trim();
@@ -670,41 +725,43 @@
       }
     }
 
+    // ----- NEW: list + load saved scenes into the editor (small additions only) -----
+    async function refreshScenes() {
+      try {
+        const res = await fetch("/api/list-scenes");
+        const scenes = await res.json();
+        const picker = document.getElementById("scenePicker");
+        picker.innerHTML = '<option value="">-- Select a scene --</option>';
+        scenes.forEach(name => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          picker.appendChild(opt);
+        });
+      } catch (e) {
+        log("Failed to load scenes: " + e.message);
+      }
+    }
+
+    async function loadScene() {
+      const picker = document.getElementById("scenePicker");
+      const name = picker.value;
+      if (!name) return;
+
+      try {
+        const res = await fetch("/api/get-scene/" + encodeURIComponent(name));
+        const data = await res.json();
+        document.getElementById("sceneName").value = data.script_name || name;
+        document.getElementById("sceneSteps").value = JSON.stringify(data.scene, null, 2);
+        log("Loaded scene: " + name);
+      } catch (e) {
+        log("Error loading scene: " + e.message);
+      }
+    }
+
+    // Auto-populate saved scenes on load
+    document.addEventListener('DOMContentLoaded', refreshScenes);
   </script>
 </body>
-
-<div class="card">
-  <h2>Create Scene JSON</h2>
-  <div>
-    <label>Script Name</label>
-    <input id="sceneName" placeholder="e.g., demo_scene" />
-  </div>
-  <div>
-    <label>Scene Steps (JSON array)</label>
-    <textarea id="sceneSteps" rows="10" style="width:100%; font-family:monospace">
-[
-  {
-    "audiofile": "intro.wav",
-    "time": 0.0,
-    "action": "say",
-    "text": "Welcome!",
-    "animation": "animations/Stand/Gestures/Hey_4"
-  },
-  {
-    "audiofile": "intro.wav",
-    "time": 2.5,
-    "action": "say",
-    "text": "Let me show you something.",
-    "animation": "animations/Stand/Gestures/ShowSky_5"
-  }
-]
-    </textarea>
-  </div>
-  <div style="margin-top:1rem">
-    <button onclick="saveScene()">Save Scene JSON</button>
-    <button onclick="runScene()">Run Scene</button>
-  </div>
-  <div id="sceneStatus" class="muted" style="margin-top:.5rem"></div>
-</div>
-
 </html>
+
