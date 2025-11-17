@@ -108,3 +108,8 @@ For 64-bit NAOqi (amd64):
 ```bash
 docker buildx build --platform linux/amd64 --load -t pepper-portal-wits .
 ```
+```bash
+docker run --rm --privileged tonistiigi/binfmt --install all #make sure this is enabled
+chmod +x run.pi #make sure its an executable
+./run.pi
+```
