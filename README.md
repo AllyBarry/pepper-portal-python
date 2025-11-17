@@ -113,3 +113,45 @@ docker run --rm --privileged tonistiigi/binfmt --install all #make sure this is 
 chmod +x run.pi #make sure its an executable
 ./run.pi
 ```
+
+
+
+# How to connect from cluster
+
+``` txt
+        [ Your PC on the Internet at home]
+                       |
+                       |  (you can ssh -L [local_port]:10.100.12.216:8080]
+                       v
++-------------------------------------------------------------------+
+|               Cluster Gateway (Public IP)                         |
+|                   [ 146.141.10.100 ]                              |
+|                                                                   |
+| [Port Forwarding Rules - Layer 1]                                 | 
+|   1. Public Port :3000  --->  [Internal Router IP] :3000          |
+|   2. Public Port :8080  --->  [Internal Router IP] :8080          |
++-------------------------------------------------------------------+
+                              |                 
+                              |   (Router IP:10.100.12.216)
+                              V                  
++-------------------------------------------------------------------+
+|           Internal Router (Within Cluster Network)                |
+|              [ e.g., 10.0.0.1 or 192.168.0.1 ]                    |
+|                                                                   |
+| [Port Forwarding Rules - Layer 2]                                 | (you have to be in the rail lab)
+|   1. Incoming Port :3000  --->  Pi (192.168.1.27) :3000           |
+|   2. Incoming Port :8080  --->  Pi (192.168.1.27) :8080           |
++-------------------------------------------------------------------+
+                       |                          |
+(Path 1: SSH Access)   |                          | (Path 2: Web App Access)
+                       |                          |
+                       v                          v
++----------------------+--------------------------+-------------------+
+|               Raspberry Pi (Internal IP: 192.168.1.27)             |
+|                                                                    |
+|     :3000 (sshd service)                    :8080 (Docker host port) |
++---------|--------------------------------------|-------------------+
+          |                                      | (Docker Port Mapping)
+          v                                      v
+    [ SSH Service ]                  [ Docker Container ]
+                                     [ Web App on Port :5000 ]```

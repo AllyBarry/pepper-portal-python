@@ -1,0 +1,30 @@
+{
+  "scene": [
+    {
+      "actions": [
+        {
+          "say": "Hello over there"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Hey_1"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "say": "My name is pepper"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Me_1", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/BowShort_1", 
+          "await": "anim"
+        }
+      ]
+    }
+  ], 
+  "script_name": "hello"
+}

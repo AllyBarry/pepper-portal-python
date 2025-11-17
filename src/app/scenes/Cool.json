@@ -1,0 +1,48 @@
+{
+  "scene": [
+    {
+      "actions": [
+        {
+          "say": "You are the coolest person ever, yes Akshay.", 
+          "wait": 1
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/You_1", 
+          "await": "anim"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "say": "You are cool too, Navilishes"
+        }, 
+        {
+          "animation": "animations/Stand/Emotions/Happy_3", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Thinking_6", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_5", 
+          "await": "anim"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "greeting.wav"
+        }, 
+        {
+          "say": "Fine, Ally is also cool", 
+          "await": "tts"
+        }
+      ], 
+      "wait": 2.3
+    }
+  ], 
+  "script_name": "Cool"
+}
