@@ -20,7 +20,7 @@
 
 set -e
 
-IMAGE="${IMAGE:-pepper-portal-wits}"
+IMAGE="${IMAGE:-pepper-portal-python:latest}"
 CONTAINER="${CONTAINER:-pepper_portal}"
 HOST_PORT="${HOST_PORT:-8080}"
 
