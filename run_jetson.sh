@@ -4,9 +4,16 @@
 # - Detached (-d) so it keeps running after you close the terminal.
 # - --restart unless-stopped so it comes back after reboot / crashes.
 # - -p 0.0.0.0:8080:5000 exposes the portal on port 8080 to the local network.
-# - Uses the image built natively on the Jetson (arm64). If you instead need
-#   to run an amd64 image under qemu, add `--platform linux/amd64` and install
-#   qemu-user-static first.
+# - --platform linux/amd64: the NAOqi Python SDK (pynaoqi) is x86-64 only, so
+#   the image must be built *and* run as amd64. On Jetson this goes through
+#   qemu-user-static emulation (slow, but it works for a Flask app).
+#
+#   One-time setup on the Jetson:
+#     sudo apt install -y qemu-user-static binfmt-support
+#     docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+#
+#   Build (once, or whenever the Dockerfile changes):
+#     docker buildx build --platform linux/amd64 -t pepper-portal-python:latest .
 #
 # Usage:
 #   ./run_jetson.sh            # start in background
@@ -32,6 +39,7 @@ echo "Source dir:  $(pwd)/src"
 docker rm -f "$CONTAINER" 2>/dev/null || true
 
 docker run -d \
+  --platform linux/amd64 \
   --name "$CONTAINER" \
   --restart unless-stopped \
   -v "$(pwd)/src:/home/user/src" \
