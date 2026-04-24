@@ -13,6 +13,7 @@ docker rm pepper_portal
 docker run -it \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $(pwd)/src:/home/user/src \
   --name pepper_portal \
   -w /home/user \
   -p 8080:5000 \

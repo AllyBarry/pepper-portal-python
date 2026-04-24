@@ -190,6 +190,10 @@
           <option value="IsiZulu">IsiZulu</option>
         </select>
       </div>
+      <div>
+        <label for="scriptsName">Name (for birthday.py)</label>
+        <input id="scriptsName" type="text" placeholder="e.g. Vicky" />
+      </div>
       <div style="align-self:end">
         <button id="btnStopScript" onclick="stopScript()" disabled>Stop Running Script</button>
       </div>
@@ -202,6 +206,19 @@
     </div>
     <div id="scriptsStatus" class="muted" style="margin-top:.5rem"></div>
     <pre id="scriptsOutput" class="stack mono" style="margin-top:.5rem; max-height:260px; overflow:auto"></pre>
+  </div>
+
+  <div class="card">
+    <h2>Behaviors</h2>
+    <p class="muted">Choregraphe behaviors installed on Pepper (via <code>ALBehaviorManager</code>). Click to run.</p>
+    <div class="row" style="margin-bottom:.5rem">
+      <div style="align-self:end">
+        <button onclick="fetchBehaviors()">Refresh</button>
+        <button onclick="stopAllBehaviors()">Stop All</button>
+      </div>
+    </div>
+    <div id="behaviorsList" class="grid"></div>
+    <div id="behaviorsStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
 
   <div class="card">
@@ -532,16 +549,17 @@
       const ip = ipInput.value.trim();
       const port = (portInput.value.trim() || '9559');
       const lang = document.getElementById('scriptsLang').value || 'English';
+      const nameParam = (document.getElementById('scriptsName').value || '').trim();
       const status = document.getElementById('scriptsStatus');
       const out = document.getElementById('scriptsOutput');
       const stopBtn = document.getElementById('btnStopScript');
       if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
       btn.disabled = true;
       stopBtn.disabled = true;
-      status.textContent = 'Running ' + name + '… (Language: ' + lang + ')';
+      status.textContent = 'Running ' + name + '… (Language: ' + lang + (nameParam ? ', Name: ' + nameParam : '') + ')';
       out.textContent = '';
       try {
-        const res = await postJSON('/api/run-script', { ip, port: Number(port), script: name, language: lang });
+        const res = await postJSON('/api/run-script', { ip, port: Number(port), script: name, language: lang, name_param: nameParam });
         const job = res.job_id;
         currentJobId = job;
         stopBtn.disabled = false;
@@ -582,6 +600,53 @@
 
     // Fetch scripts on load
     window.addEventListener('load', function () { fetchScripts(); });
+
+    // ----- Behaviors UI -----
+    async function fetchBehaviors() {
+      const box = document.getElementById('behaviorsList');
+      const status = document.getElementById('behaviorsStatus');
+      const ip = ipInput.value.trim();
+      const port = (portInput.value.trim() || '9559');
+      box.innerHTML = '';
+      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      status.textContent = 'Loading behaviors…';
+      try {
+        const data = await postJSON('/api/list-behaviors', { ip, port: Number(port) });
+        if (!data.behaviors || !data.behaviors.length) { status.textContent = 'No behaviors installed on Pepper.'; return; }
+        const running = new Set(data.running || []);
+        status.textContent = 'Found ' + data.behaviors.length + ' behavior(s).';
+        data.behaviors.forEach(name => {
+          const btn = document.createElement('button');
+          btn.className = 'anim-btn';
+          btn.textContent = name + (running.has(name) ? '  (running)' : '');
+          btn.addEventListener('click', () => runBehavior(name));
+          box.appendChild(btn);
+        });
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
+
+    async function runBehavior(name) {
+      const ip = ipInput.value.trim();
+      const port = (portInput.value.trim() || '9559');
+      const status = document.getElementById('behaviorsStatus');
+      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      status.textContent = 'Starting ' + name + '…';
+      try {
+        await postJSON('/api/run-behavior', { ip, port: Number(port), behavior: name });
+        status.innerHTML = '<span class="ok">Started ' + name + '.</span>';
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
+
+    async function stopAllBehaviors() {
+      const ip = ipInput.value.trim();
+      const port = (portInput.value.trim() || '9559');
+      const status = document.getElementById('behaviorsStatus');
+      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      try {
+        await postJSON('/api/stop-behavior', { ip, port: Number(port) });
+        status.innerHTML = '<span class="ok">Stop sent to all behaviors.</span>';
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
 
     async function stopScript() {
       const status = document.getElementById('scriptsStatus');
