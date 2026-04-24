@@ -4,11 +4,9 @@
 # - Detached (-d) so it keeps running after you close the terminal.
 # - --restart unless-stopped so it comes back after reboot / crashes.
 # - -p 0.0.0.0:8080:5000 exposes the portal on port 8080 to the local network.
-# - --platform linux/amd64 so the existing amd64 image runs under Jetson's qemu
-#   (requires qemu-user-static; install via `sudo apt install qemu-user-static`
-#   and `docker run --rm --privileged multiarch/qemu-user-static --reset -p yes`
-#   once per boot if you haven't already). If you build a native arm64 image,
-#   remove the --platform flag.
+# - Uses the image built natively on the Jetson (arm64). If you instead need
+#   to run an amd64 image under qemu, add `--platform linux/amd64` and install
+#   qemu-user-static first.
 #
 # Usage:
 #   ./run_jetson.sh            # start in background
@@ -34,7 +32,6 @@ echo "Source dir:  $(pwd)/src"
 docker rm -f "$CONTAINER" 2>/dev/null || true
 
 docker run -d \
-  --platform linux/amd64 \
   --name "$CONTAINER" \
   --restart unless-stopped \
   -v "$(pwd)/src:/home/user/src" \
