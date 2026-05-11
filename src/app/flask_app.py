@@ -155,11 +155,12 @@ _job_counter = itertools.count(1)
 _jobs_lock = threading.Lock()
 
 
-def _run_script_job(job_id, script_path, ip, port, language):
+def _run_script_job(job_id, script_path, ip, port, language, name_param=""):
     env = os.environ.copy()
     env["PEPPER_IP"] = ip
     env["PEPPER_PORT"] = str(port)
     env["SCRIPT_LANG"] = language  # also available via env
+    env["BIRTHDAY_NAME"] = name_param  # consumed by birthday.py; other scripts ignore it
 
     cmd = [sys.executable, script_path, "--ip", ip, "--port", str(port), "--lang", language]
     try:
@@ -382,6 +383,62 @@ def api_stop_animation():
         pass
     return jsonify({"ok": True})
 
+# ---- Behaviors (installed Choregraphe behaviors) ----
+@app.route("/api/list-behaviors", methods=["POST"])
+@json_endpoint
+def api_list_behaviors():
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    if not ip:
+        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
+    sess = get_session(ip, port)
+    bm = sess.service("ALBehaviorManager")
+    installed = list(bm.getInstalledBehaviors())
+    running = set(bm.getRunningBehaviors())
+    installed.sort(key=lambda s: s.lower())
+    return jsonify({"ok": True, "behaviors": installed, "running": list(running)})
+
+
+@app.route("/api/run-behavior", methods=["POST"])
+@json_endpoint
+def api_run_behavior():
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    behavior = (data.get("behavior") or "").strip()
+    if not ip or not behavior:
+        return jsonify({"ok": False, "error": "'ip' and 'behavior' are required"}), 400
+    sess = get_session(ip, port)
+    bm = sess.service("ALBehaviorManager")
+    if not bm.isBehaviorInstalled(behavior):
+        return jsonify({"ok": False, "error": "Behavior not installed: " + behavior}), 404
+    # Fire-and-forget — the portal can poll /api/list-behaviors to see running state.
+    bm.runBehavior(behavior, _async=True)
+    return jsonify({"ok": True, "behavior": behavior})
+
+
+@app.route("/api/stop-behavior", methods=["POST"])
+@json_endpoint
+def api_stop_behavior():
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    behavior = (data.get("behavior") or "").strip()
+    if not ip:
+        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
+    sess = get_session(ip, port)
+    bm = sess.service("ALBehaviorManager")
+    try:
+        if behavior:
+            bm.stopBehavior(behavior)
+        else:
+            bm.stopAllBehaviors()
+    except Exception:
+        pass
+    return jsonify({"ok": True})
+
+
 # ---- Scripts listing/running (scripts/) ----
 
 @app.route("/api/scripts", methods=["GET"])
@@ -407,6 +464,7 @@ def api_run_script():
     port = int(data.get("port", 9559))
     script = (data.get("script") or "").strip()
     language = (data.get("language") or "English").strip()
+    name_param = (data.get("name_param") or "").strip()
 
     if not ip or not script:
         return jsonify({"ok": False, "error": "Provide 'ip' and 'script'"}), 400
@@ -428,7 +486,7 @@ def api_run_script():
         }
 
     t = threading.Thread(
-        target=_run_script_job, args=(job_id, spath, ip, port, language)
+        target=_run_script_job, args=(job_id, spath, ip, port, language, name_param)
     )
     t.daemon = True
     t.start()
