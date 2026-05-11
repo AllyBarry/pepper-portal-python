@@ -1,0 +1,39 @@
+x-pepper-portal: &pepper-portal
+  image: pepper-portal-python:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+  working_dir: /home/user
+  environment:
+    DISPLAY: ${DISPLAY:-}
+  volumes:
+    - ./src:/home/user/src
+    - /tmp/.X11-unix:/tmp/.X11-unix
+  stdin_open: true
+  tty: true
+
+services:
+  pepper-portal:
+    <<: *pepper-portal
+    container_name: pepper_portal
+    ports:
+      - "8080:5000"
+
+  pepper-portal-pi-setup:
+    image: tonistiigi/binfmt:latest
+    container_name: pepper_portal_pi_setup
+    privileged: true
+    command:
+      - --install
+      - all
+    restart: "no"
+
+  pepper-portal-pi:
+    <<: *pepper-portal
+    container_name: pepper_portal_pi
+    platform: linux/amd64
+    depends_on:
+      pepper-portal-pi-setup:
+        condition: service_completed_successfully
+    ports:
+      - "8088:5000"

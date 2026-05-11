@@ -12,6 +12,7 @@ echo $DISPLAY
 docker rm pepper_portal
 docker run -it \
   -e DISPLAY=$DISPLAY \
+  -v "$(pwd)/src:/home/user/src" \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   --name pepper_portal \
   -w /home/user \
