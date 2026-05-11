@@ -63,15 +63,15 @@ def _resolve_audio_path(audiofile, audio_source, base_dir):
 
 def _parse_await_policy(row):
     """
-    Returns dict flags for groups: {'audio': bool|None, 'tts': bool|None, 'anim': bool|None}
+    Returns dict flags for groups: {'audio': bool|None, 'tts': bool|None, 'anim': bool|None, 'behavior': bool|None}
     Precedence:
-      1) await_audio / await_tts / await_anim booleans on the row
+      1) await_audio / await_tts / await_anim / await_behavior booleans on the row
       2) 'await' string or list on the row
       3) None -> use default rule (arrays wait, scalars don't)
     """
     flags = {}
     # explicit per-group booleans
-    for k, g in (("await_audio", "audio"), ("await_tts", "tts"), ("await_anim", "anim")):
+    for k, g in (("await_audio", "audio"), ("await_tts", "tts"), ("await_anim", "anim"), ("await_behavior", "behavior")):
         if k in row:
             try:
                 flags[g] = bool(row[k])
@@ -88,10 +88,12 @@ def _parse_await_policy(row):
                 flags.setdefault("audio", True)
                 flags.setdefault("tts", True)
                 flags.setdefault("anim", True)
+                flags.setdefault("behavior", True)
             elif "none" in aset:
                 flags.setdefault("audio", False)
                 flags.setdefault("tts", False)
                 flags.setdefault("anim", False)
+                flags.setdefault("behavior", False)
             else:
                 if "audio" in aset:
                     flags.setdefault("audio", True)
@@ -99,6 +101,8 @@ def _parse_await_policy(row):
                     flags.setdefault("tts", True)
                 if "anim" in aset or "animation" in aset or "run" in aset or "runs" in aset:
                     flags.setdefault("anim", True)
+                if "behavior" in aset or "behaviour" in aset or "behaviors" in aset or "behaviours" in aset:
+                    flags.setdefault("behavior", True)
 
     return flags if flags else None
 
@@ -121,6 +125,7 @@ class PepperScripter(object):
           - play_audio(path, async_play=True/False)
           - say(text,   async_play=True/False)
           - play_animation(name, async_play=True/False)
+          - play_behavior(name, async_play=True/False)
         """
         self.controller = controller
         self.verbose = bool(verbose)
@@ -326,6 +331,56 @@ class PepperScripter(object):
                             except Exception as e:
                                 _log("WARN", "anim future error: %s | %s" % (e.__class__.__name__, e), self.verbose)
 
+                # ---- BEHAVIOR ----
+                behavior_scalars = []
+                behavior_arrays = []
+                for key in ("behavior", "behaviors", "behaviour", "behaviours"):
+                    if key in row and row[key] is not None:
+                        v = row[key]
+                        if isinstance(v, list):
+                            behavior_arrays.append(v)
+                        else:
+                            behavior_scalars.append(v)
+
+                for val in behavior_scalars:
+                    name = val
+                    if not name:
+                        continue
+                    _log("INFO", "BLOCK %d ROW %d: BEHAVIOR %s" % (bi, ri, name), self.verbose)
+                    try:
+                        fut = self.controller.play_behavior(name, async_play=True)
+                        executed_any = True
+                        if fut is not None:
+                            block_futures.append(fut)
+                        if _should_wait("behavior", False, row_flags) and hasattr(fut, "value"):
+                            fut.value()
+                    except Exception as e:
+                        _log("ERROR", "play_behavior failed: %s | %s" % (e.__class__.__name__, e), self.verbose)
+                        print(traceback.format_exc())
+
+                for arr in behavior_arrays:
+                    futures = []
+                    for name in arr:
+                        if not name:
+                            continue
+                        _log("INFO", "BLOCK %d ROW %d: BEHAVIOR %s" % (bi, ri, name), self.verbose)
+                        try:
+                            fut = self.controller.play_behavior(name, async_play=True)
+                            executed_any = True
+                            if fut is not None:
+                                futures.append(fut)
+                                block_futures.append(fut)
+                        except Exception as e:
+                            _log("ERROR", "play_behavior failed: %s | %s" % (e.__class__.__name__, e), self.verbose)
+                            print(traceback.format_exc())
+                    if _should_wait("behavior", True, row_flags):
+                        for fut in futures:
+                            try:
+                                if hasattr(fut, "value"):
+                                    fut.value()
+                            except Exception as e:
+                                _log("WARN", "behavior future error: %s | %s" % (e.__class__.__name__, e), self.verbose)
+
                 # Optional beat between rows
                 hold = _to_float(row.get("hold_for", 0.0), 0.0, "scene[%d].actions[%d].hold_for" % (bi, ri))
                 if hold > 0:
@@ -395,4 +450,3 @@ if __name__ == "__main__":
         print("[ERROR] Demo run failed: %s" % str(e))
         print(traceback.format_exc())
         raise SystemExit(1)
-

@@ -1,28 +1,28 @@
 {
+  "script_name": "DemoScript",
+  "audio_source": "/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Informal Conditions/English/",
   "scene": [
     {
       "actions": [
         {
-          "say": "You are the coolest person ever, yes Akshay.", 
-          "wait": 1
+          "audiofile": "/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Informal Conditions/English/1.wav"
         }, 
         {
-          "animation": "animations/Stand/Gestures/You_1", 
-          "await": "anim"
+          "animation": "animations/Stand/Gestures/Hey_4"
         }
       ]
     }, 
     {
       "actions": [
         {
-          "say": "You are cool too, Navilishes"
+          "audiofile": "2.wav"
         }, 
         {
-          "animation": "animations/Stand/Emotions/Happy_3", 
+          "animation": "animations/Stand/Gestures/ShowSky_5", 
           "await": "anim"
         }, 
         {
-          "animation": "animations/Stand/Gestures/Thinking_6", 
+          "animation": "animations/Stand/Gestures/Explain_4", 
           "await": "anim"
         }, 
         {
@@ -44,5 +44,7 @@
       "wait": 2.3
     }
   ], 
-  "script_name": "okay"
+  "script_name": "demo_scene"
 }
+
+

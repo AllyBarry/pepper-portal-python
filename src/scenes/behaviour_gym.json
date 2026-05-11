@@ -1,0 +1,73 @@
+{
+  "script_name": "behaviour_gym",
+  "scene": [
+    {
+      "actions": [
+        {
+          "say": "People do not always expect this, but I like the gym."
+        },
+        {
+          "animation": "animations/Stand/Gestures/YouKnowWhat_5",
+          "await": "anim"
+        },
+        {
+          "say": "I like to feel strong, balanced, and ready."
+        },
+        {
+          "animation": "animations/Stand/Waiting/ShowMuscles_3",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "A little training gives you confidence."
+        },
+        {
+          "animation": "animations/Stand/Waiting/Fitness_2",
+          "await": "anim"
+        },
+        {
+          "say": "And cardio matters too."
+        },
+        {
+          "say": "Watch my deadlift and press"
+        },
+        {
+          "animation": "animations/Stand/Waiting/Fitness_3",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "Not bad, right?"
+        },
+        {
+          "animation": "animations/Stand/Waiting/KungFu_1",
+          "await": "anim"
+        },
+        {
+          "animation": "animations/Stand/Waiting/ShowMuscles_5",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.4,
+      "actions": [
+        {
+          "say": "Thank you."
+        },
+        {
+          "animation": "animations/Stand/Gestures/BowShort_1",
+          "await": "anim"
+        }
+      ]
+    }
+  ]
+}

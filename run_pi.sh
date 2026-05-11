@@ -4,6 +4,9 @@
 # xhost +local:docker
 # When complete, run:
 # xhost -local:docker
+# table, complex, fetch robot. Finite table of results for fetch robot. First redo that main table which env does better
+# 1. Show the indepdent for training and 
+# 2. Infrustructure
 
 # Change to 'run -d' to run in detached mode.
 echo $(pwd)/src
@@ -17,5 +20,5 @@ docker run -it \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   --name pepper_portal \
   -w /home/user \
-  -p 8080:5000 \
-  pepper-portal-wits
+  -p 8088:5000 \
+  pepper-portal-python

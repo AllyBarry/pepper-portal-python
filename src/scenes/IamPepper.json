@@ -1,0 +1,85 @@
+{
+  "script_name": "IamPepper",
+  "scene": [
+    {
+      "actions": [
+        {
+          "say": "Hello everyone. I am Pepper."
+        },
+        {
+          "animation": "animations/Stand/Gestures/Hey_1",
+          "await": "anim"
+        },
+        {
+          "say": "It is really nice to meet you."
+        },
+        {
+          "animation": "animations/Stand/Gestures/BowShort_1",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.4,
+      "actions": [
+        {
+          "say": "I am Pepper, and I am very happy to be here with you."
+        },
+        {
+          "animation": "animations/Stand/Gestures/Me_1",
+          "await": "anim"
+        },
+        {
+          "say": "I love to talk, move, and dance with people."
+        },
+        {
+          "animation": "animations/Stand/Gestures/Explain_1",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "Let me dance for you."
+        },
+        {
+          "animation": "animations/Stand/Emotions/Positive/Happy_1",
+          "await": "anim"
+        },
+        {
+          "say": "Let me show you something fun."
+        },
+        {
+          "behavior": "dialog_howareyou/behavior_1",
+          "await": "behavior"
+        },
+        {
+          "animation": "animations/Stand/Waiting/TakePicture_1",
+          "await": "anim"
+        },
+        {
+          "animation": "animations/Stand/Emotions/Positive/Happy_3",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.4,
+      "actions": [
+        {
+          "say": "Thank you."
+        },
+        {
+          "animation": "animations/Stand/Emotions/Positive/Peaceful_1",
+          "await": "anim"
+        },
+        {
+          "animation": "animations/Stand/Gestures/BowShort_1",
+          "await": "anim"
+        }
+      ]
+    }
+  ]
+}

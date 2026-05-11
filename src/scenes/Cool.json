@@ -3,7 +3,7 @@
     {
       "actions": [
         {
-          "say": "You are the coolest person ever, yes Akshay.", 
+          "say": "You are the coolest person ever, yes Jackson.", 
           "wait": 1
         }, 
         {
@@ -15,7 +15,7 @@
     {
       "actions": [
         {
-          "say": "You are cool too, Navilishes"
+          "say": "You are cool too, Benji"
         }, 
         {
           "animation": "animations/Stand/Emotions/Happy_3", 

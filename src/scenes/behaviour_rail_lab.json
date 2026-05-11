@@ -1,0 +1,74 @@
+{
+  "script_name": "behaviour_rail_lab",
+  "scene": [
+    {
+      "actions": [
+        {
+          "say": "Hello. Welcome to the RAIL lab."
+        },
+        {
+          "animation": "animations/Stand/Gestures/Hey_1",
+          "await": "anim"
+        },
+        {
+          "say": "I am Pepper, and I am part of the team here."
+        },
+        {
+          "animation": "animations/Stand/Gestures/Me_1",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "This is a place for ideas, experiments, and collaboration."
+        },
+        {
+          "animation": "animations/Stand/Gestures/Explain_8",
+          "await": "anim"
+        },
+        {
+          "say": "Let me show you around a little."
+        },
+        {
+          "animation": "animations/Stand/Gestures/ShowFloor_4",
+          "await": "anim"
+        },
+        {
+          "animation": "animations/Stand/Gestures/ShowSky_5",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "And yes, we spend a lot of time talking, asking questions, and learning together."
+        },
+        {
+          "behavior": "dialog_howareyou/behavior_1",
+          "await": "behavior"
+        },
+        {
+          "animation": "animations/Stand/Emotions/Positive/Proud_2",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.4,
+      "actions": [
+        {
+          "say": "Thank you for visiting."
+        },
+        {
+          "animation": "animations/Stand/Gestures/BowShort_1",
+          "await": "anim"
+        }
+      ]
+    }
+  ]
+}

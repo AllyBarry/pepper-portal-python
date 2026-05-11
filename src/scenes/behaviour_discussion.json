@@ -1,0 +1,70 @@
+{
+  "script_name": "behaviour_discussion",
+  "scene": [
+    {
+      "actions": [
+        {
+          "say": "Let us think together."
+        },
+        {
+          "animation": "animations/Stand/Gestures/Thinking_6",
+          "await": "anim"
+        },
+        {
+          "say": "I enjoy conversations where people share ideas openly."
+        },
+        {
+          "animation": "animations/Stand/Gestures/Explain_4",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "Sometimes I guide the discussion."
+        },
+        {
+          "animation": "animations/Stand/Gestures/You_1",
+          "await": "anim"
+        },
+        {
+          "say": "Sometimes I listen carefully and respond."
+        },
+        {
+          "animation": "animations/Stand/Gestures/Thinking_8",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "Here is one of my more expressive conversation behaviours."
+        },
+        {
+          "behavior": "dialog_howareyou/behavior_1",
+          "await": "behavior"
+        },
+        {
+          "animation": "animations/Stand/Gestures/YouKnowWhat_4",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.4,
+      "actions": [
+        {
+          "say": "I am ready for the next question."
+        },
+        {
+          "animation": "animations/Stand/Emotions/Positive/Peaceful_1",
+          "await": "anim"
+        }
+      ]
+    }
+  ]
+}

@@ -53,7 +53,7 @@ app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"), stati
 # --------------------------
 # Directories (configurable)
 # --------------------------
-SCENES_DIR = os.environ.get("SCENES_DIR") or os.path.join(BASE_DIR, "scenes")
+SCENES_DIR = os.environ.get("SCENES_DIR") or os.path.join(os.path.dirname(BASE_DIR), "scenes")
 SCRIPTS_DIR = os.environ.get("SCRIPTS_DIR") or os.path.join(BASE_DIR, "scripts")
 
 for _d in (SCENES_DIR, SCRIPTS_DIR):
@@ -731,4 +731,3 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "5000"))
     app.run(host=host, port=port, debug=True)
-

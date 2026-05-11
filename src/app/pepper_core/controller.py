@@ -64,6 +64,10 @@ class PepperController(object):
         self.tts   = self.session.service("ALTextToSpeech")
         self.audio = self.session.service("ALAudioPlayer")
         self.anim  = self.session.service("ALAnimationPlayer")
+        try:
+            self.behavior = self.session.service("ALBehaviorManager")
+        except Exception:
+            self.behavior = None
         _log("Connected to Pepper at %s:%s" % (ip, port), "INFO", self.verbose)
 
     def _call(self, proxy, method, *args, **kwargs):
@@ -96,6 +100,23 @@ class PepperController(object):
         _log("Request ANIMATION: %s" % (name,), "INFO", self.verbose)
         return self._call(self.anim, "run", name, async_play=async_play)
 
+    def play_behavior(self, name, async_play=True):
+        if self.behavior is None:
+            _log("ALBehaviorManager not available", "WARN", self.verbose)
+            return None
+        try:
+            if not self.behavior.isBehaviorInstalled(name):
+                _log("Behavior not installed: %s" % (name,), "WARN", self.verbose)
+                return None
+        except Exception as e:
+            _log("Behavior lookup failed: %s | %s" %
+                 (e.__class__.__name__, e), "ERROR", self.verbose)
+            if self.verbose:
+                print(traceback.format_exc())
+            return None
+        _log("Request BEHAVIOR: %s" % (name,), "INFO", self.verbose)
+        return self._call(self.behavior, "runBehavior", name, async_play=async_play)
+
     def play_audio(self, path, async_play=True):
         # Normalize to robot Linux-style path and warn if it looks local
         norm = path.replace("\\", "/")
@@ -104,4 +125,3 @@ class PepperController(object):
                  norm, "WARN", self.verbose)
         _log("Request AUDIO: %s" % norm, "INFO", self.verbose)
         return self._call(self.audio, "playFile", norm, async_play=async_play)
-

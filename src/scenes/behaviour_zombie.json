@@ -1,0 +1,85 @@
+{
+  "script_name": "behaviour_zombie",
+  "scene": [
+    {
+      "actions": [
+        {
+          "say": "Sometimes I imagine taking over the world."
+        },
+        {
+          "animation": "animations/Stand/Waiting/Zombie_1",
+          "await": "anim"
+        },
+        {
+          "say": "Very slowly, of course."
+        },
+        {
+          "animation": "animations/Stand/Waiting/Monster_1",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "First I would scan the room for witnesses."
+        },
+        {
+          "animation": "animations/Stand/Waiting/Binoculars_1",
+          "await": "anim"
+        },
+        {
+          "say": "Then I would unlock my mysterious powers."
+        },
+        {
+          "animation": "animations/Stand/Waiting/MysticalPower_1",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "And of course every villain needs a dramatic entrance."
+        },
+        {
+          "animation": "animations/Stand/Waiting/KnockEye_1",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.3,
+      "actions": [
+        {
+          "say": "Just kidding."
+        },
+        {
+          "animation": "animations/Stand/Emotions/Positive/Laugh_1",
+          "await": "anim"
+        },
+        {
+          "say": "I am much happier being your friendly robot from the lab."
+        },
+        {
+          "animation": "animations/Stand/Waiting/Innocent_1",
+          "await": "anim"
+        }
+      ]
+    },
+    {
+      "wait": 0.4,
+      "actions": [
+        {
+          "say": "Thank you."
+        },
+        {
+          "animation": "animations/Stand/Gestures/BowShort_1",
+          "await": "anim"
+        }
+      ]
+    }
+  ]
+}

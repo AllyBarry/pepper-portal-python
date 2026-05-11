@@ -1,0 +1,28 @@
+{
+  "scene": [
+    {
+      "actions": [
+        {
+          "say": "You are the coolest person ever, yes Jackson.", 
+          "wait": 1
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/You_1", 
+          "await": "anim"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "say": "You are cool too, Benji"
+        }, 
+        {
+          "animation": "animations/Stand/Emotions/Happy_3", 
+          "await": "anim"
+        }
+      ]
+    }
+  ], 
+  "script_name": "ComplimentScene"
+}
