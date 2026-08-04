@@ -3,6 +3,9 @@ x-pepper-portal: &pepper-portal
   build:
     context: .
     dockerfile: Dockerfile
+  # The NAOqi Python SDK (pynaoqi) ships x86-64-only .so files, so the image must
+  # be built *and* run as amd64. Native on x86 hosts; emulated (binfmt/Rosetta) on ARM.
+  platform: linux/amd64
   working_dir: /home/user
   environment:
     DISPLAY: ${DISPLAY:-}
@@ -19,21 +22,20 @@ services:
     ports:
       - "8080:5000"
 
-  pepper-portal-pi-setup:
+  pepper-portal-arm-setup:
     image: tonistiigi/binfmt:latest
-    container_name: pepper_portal_pi_setup
+    container_name: pepper_portal_arm_setup
     privileged: true
     command:
       - --install
       - all
     restart: "no"
 
-  pepper-portal-pi:
+  pepper-portal-arm:
     <<: *pepper-portal
-    container_name: pepper_portal_pi
-    platform: linux/amd64
+    container_name: pepper_portal_arm
     depends_on:
-      pepper-portal-pi-setup:
+      pepper-portal-arm-setup:
         condition: service_completed_successfully
     ports:
       - "8088:5000"

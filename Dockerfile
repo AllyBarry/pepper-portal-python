@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y iproute2 telnet iputils-ping \
     liblzma-dev pkg-config \
     && apt-get clean
 
-# Build Python from source
+#Build Python from source
 WORKDIR /tmp
 RUN wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz \
     && tar --extract -f Python-$PYTHON_VERSION.tgz \
@@ -22,21 +22,21 @@ RUN wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSIO
 
 ENV PYTHONPATH=/usr/local/bin/python
 
-# Set the working directory to /naoqi
+#Set the working directory to /naoqi
 WORKDIR /naoqi
 
-# --- Added: NAOqi SDK version variable ---
+#--- Added: NAOqi SDK version variable ---
 ENV sdk_version=pynaoqi-python2.7-2.8.6.23-linux64-20191127_152327
 #ENV sdk_version=pynaoqi-python2.7-2.1.4.13-linux32
 
-# Copy the NAOqi for Python SDK
+#Copy the NAOqi for Python SDK
 ADD ${sdk_version}.tar.gz /naoqi/
 
-# Copy the boost fix
+#Copy the boost fix
 # See https://community.ald.softbankrobotics.com/en/forum/import-issue-pynaoqi-214-ubuntu-7956
 COPY boost/ /naoqi/${sdk_version}/
 
-# Add the path to the SDK
+#Add the path to the SDK
 ENV PYTHONPATH=$PYTHONPATH:/naoqi/${sdk_version}/lib/python2.7/site-packages/
 ENV PYTHONPATH=$PYTHONPATH:/naoqi/${sdk_version}/
 ENV LD_LIBRARY_PATH=/naoqi/${sdk_version}

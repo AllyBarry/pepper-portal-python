@@ -34,8 +34,12 @@ from flask import Flask, jsonify, render_template, request
 
 try:
     import qi  # NAOqi Python SDK
-except Exception:
+    _QI_IMPORT_ERROR = None
+except Exception as _e:
     qi = None
+    # Keep the real reason: the usual cause is an architecture mismatch (pynaoqi
+    # ships x86-64-only .so files), not a missing PYTHONPATH.
+    _QI_IMPORT_ERROR = traceback.format_exc()
 
 # Make local modules importable even if CWD differs
 import sys
@@ -107,7 +111,11 @@ _sessions = {}  # key: "ip:port" -> qi.Session()
 
 def get_session(ip, port=9559):
     if qi is None:
-        raise RuntimeError("NAOqi 'qi' module not found. Ensure NAOqi SDK is installed and PYTHONPATH is set.")
+        raise RuntimeError(
+            "NAOqi 'qi' module could not be imported. Ensure the SDK is installed, "
+            "PYTHONPATH is set, and the container is running as linux/amd64.\n%s"
+            % (_QI_IMPORT_ERROR or "")
+        )
     key = "%s:%s" % (ip, port)
     sess = _sessions.get(key)
     if sess is None:
