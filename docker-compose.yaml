@@ -20,7 +20,9 @@ services:
     <<: *pepper-portal
     container_name: pepper_portal
     ports:
-      - "8080:5000"
+      # Host 8080 is commonly taken by SSH tunnels to the cluster (see README),
+      # which shadow Docker's mapping on loopback. 8081 avoids the clash.
+      - "8081:5000"
 
   pepper-portal-arm-setup:
     image: tonistiigi/binfmt:latest

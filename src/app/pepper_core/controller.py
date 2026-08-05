@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import threading
 import traceback
 try:
     import qi
@@ -7,6 +8,7 @@ except ImportError:
     qi = None
 
 _sessions = {}
+_sessions_lock = threading.Lock()
 
 def _log(msg, level="INFO", verbose=True):
     if not verbose:
@@ -20,36 +22,64 @@ def _log(msg, level="INFO", verbose=True):
         pass
     print("[CONTROLLER][%s] %s" % (level, msg))
 
+def _session_is_live(sess):
+    """True if sess is connected. Older bindings lack isConnected(); assume live."""
+    if not hasattr(sess, "isConnected"):
+        return True
+    try:
+        return bool(sess.isConnected())
+    except Exception:
+        return False
+
+
+def _close_quietly(sess):
+    try:
+        sess.close()
+    except Exception:
+        pass
+
+
 def get_session(ip, port=9559):
     if qi is None:
         raise RuntimeError("NAOqi 'qi' module not found. Set PYTHONPATH to SDK.")
     key = "%s:%s" % (ip, port)
-    sess = _sessions.get(key)
-    if sess is None:
+
+    # See flask_app.get_session: connect() must be serialised, and a qi.Session
+    # that has already connected cannot be reconnected -- its service cache still
+    # holds ServiceDirectory, so connect() raises "Service already in cache".
+    with _sessions_lock:
+        sess = _sessions.get(key)
+        if sess is not None and _session_is_live(sess):
+            return sess
+
+        if sess is not None:
+            _close_quietly(sess)
+            _sessions.pop(key, None)
+
         sess = qi.Session()
+        try:
+            sess.connect("tcp://{}:{}".format(ip, port))
+        except RuntimeError as e:
+            _close_quietly(sess)
+            raise RuntimeError("Could not connect to Pepper at %s: %s" % (key, e))
+
         _sessions[key] = sess
-    try:
-        if hasattr(sess, "isConnected") and not sess.isConnected():
-            sess.connect("tcp://{}:{}".format(ip, port))
-        else:
-            sess.connect("tcp://{}:{}".format(ip, port))
-    except RuntimeError as e:
-        if "already connected" not in str(e).lower():
-            raise
-    return sess
+        return sess
 
 def reset_session(ip=None, port=9559, verbose=True):
     if ip is None:
-        _sessions.clear()
+        with _sessions_lock:
+            stale = list(_sessions.values())
+            _sessions.clear()
+        for sess in stale:
+            _close_quietly(sess)
         _log("All cached sessions reset", "INFO", verbose)
         return
     key = "%s:%s" % (ip, port)
-    sess = _sessions.pop(key, None)
+    with _sessions_lock:
+        sess = _sessions.pop(key, None)
     if sess is not None:
-        try:
-            sess.close()
-        except Exception:
-            pass
+        _close_quietly(sess)
     _log("Session reset for %s" % key, "INFO", verbose)
 
 class PepperController(object):

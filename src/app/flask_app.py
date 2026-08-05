@@ -108,6 +108,25 @@ def _safe_join(base_dir, filename):
 # Session cache & services
 # --------------------------
 _sessions = {}  # key: "ip:port" -> qi.Session()
+_sessions_lock = threading.Lock()
+
+
+def _session_is_live(sess):
+    """True if sess is connected. Older bindings lack isConnected(); assume live."""
+    if not hasattr(sess, "isConnected"):
+        return True
+    try:
+        return bool(sess.isConnected())
+    except Exception:
+        return False
+
+
+def _close_quietly(sess):
+    try:
+        sess.close()
+    except Exception:
+        pass
+
 
 def get_session(ip, port=9559):
     if qi is None:
@@ -117,33 +136,40 @@ def get_session(ip, port=9559):
             % (_QI_IMPORT_ERROR or "")
         )
     key = "%s:%s" % (ip, port)
-    sess = _sessions.get(key)
-    if sess is None:
-        sess = qi.Session()
-        _sessions[key] = sess
 
-    # Connect only if not already connected
-    try:
-        if hasattr(sess, "isConnected"):
-            if not sess.isConnected():
-                sess.connect("tcp://{}:{}".format(ip, port))
-        else:
-            # Fallback for older bindings: try connect and ignore "already connected"
+    # The lock serialises connect() across Flask's worker threads. Without it two
+    # concurrent requests both see a disconnected session and both call connect(),
+    # and the loser gets "Service already in cache: ServiceDirectory".
+    with _sessions_lock:
+        sess = _sessions.get(key)
+        if sess is not None and _session_is_live(sess):
+            return sess
+
+        # A qi.Session cannot be reconnected: once it has connected, its service
+        # cache keeps ServiceDirectory even after the link drops, so a second
+        # connect() on the same object always fails. Throw it away and start fresh.
+        if sess is not None:
+            _close_quietly(sess)
+            _sessions.pop(key, None)
+
+        sess = qi.Session()
+        try:
             sess.connect("tcp://{}:{}".format(ip, port))
-    except RuntimeError as e:
-        if "already connected" not in str(e).lower():
-            raise
-    return sess
+        except RuntimeError as e:
+            # Don't cache a half-connected session; the next request starts clean.
+            _close_quietly(sess)
+            raise RuntimeError("Could not connect to Pepper at %s: %s" % (key, e))
+
+        _sessions[key] = sess
+        return sess
 
 def clear_session(ip, port):
     """Explicitly close and delete a session for ip:port."""
     key = "%s:%s" % (ip, port)
-    sess = _sessions.pop(key, None)
+    with _sessions_lock:
+        sess = _sessions.pop(key, None)
     if sess:
-        try:
-            sess.close()
-        except Exception:
-            pass
+        _close_quietly(sess)
         print("Session cleared for {}:{}".format(ip, port))
     else:
         print("No session found for {}:{}".format(ip, port))
