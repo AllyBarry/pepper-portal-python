@@ -9,6 +9,13 @@ x-pepper-portal: &pepper-portal
   working_dir: /home/user
   environment:
     DISPLAY: ${DISPLAY:-}
+    # The LLM is a sibling container, reached by service name on the Compose network.
+    OLLAMA_BASE_URL: http://ollama:11434
+    OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+  # host.docker.internal is built in on Docker Desktop but absent on Linux hosts;
+  # the local STT helper is still reached that way.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   volumes:
     - ./src:/home/user/src
     - /tmp/.X11-unix:/tmp/.X11-unix
@@ -16,9 +23,54 @@ x-pepper-portal: &pepper-portal
   tty: true
 
 services:
+  # Ollama runs natively for the host CPU/GPU — deliberately NOT the amd64 pin the
+  # portal needs, since emulated inference is unusably slow.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pepper_portal_ollama
+    volumes:
+      - ollama-models:/root/.ollama
+    # Published only on loopback: the portal reaches it over the Compose network,
+    # not through this mapping.
+    ports:
+      - "127.0.0.1:11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    # On a Linux host with NVIDIA drivers + nvidia-container-toolkit, uncomment for
+    # GPU inference. Docker Desktop on macOS cannot pass through Metal — CPU only.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # One-off: downloads the chat model into the ollama-models volume. Run it once
+  # (and again after changing OLLAMA_MODEL); it exits when the pull completes.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: pepper_portal_ollama_pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+    entrypoint: ["/bin/sh", "-c", "ollama pull \"$$OLLAMA_MODEL\""]
+    restart: "no"
+
   pepper-portal:
     <<: *pepper-portal
     container_name: pepper_portal
+    depends_on:
+      ollama:
+        condition: service_healthy
     ports:
       # Host 8080 is commonly taken by SSH tunnels to the cluster (see README),
       # which shadow Docker's mapping on loopback. 8081 avoids the clash.
@@ -39,5 +91,10 @@ services:
     depends_on:
       pepper-portal-arm-setup:
         condition: service_completed_successfully
+      ollama:
+        condition: service_healthy
     ports:
       - "8088:5000"
+
+volumes:
+  ollama-models:

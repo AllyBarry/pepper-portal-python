@@ -44,7 +44,7 @@ docker compose build pepper-portal
 docker compose up pepper-portal
 ```
 
-Web page: `localhost:8080`.
+Web page: `localhost:8081`.
 
 ### On an ARM host (Apple Silicon / Raspberry Pi / Jetson)
 
@@ -84,12 +84,15 @@ and no robot command will work.
 
 | Service | Container | Port | Use it when |
 |---|---|---|---|
-| `pepper-portal` | `pepper_portal` | 8080 | Host is x86-64 (native amd64) |
+| `pepper-portal` | `pepper_portal` | 8081 | Host is x86-64 (native amd64) |
 | `pepper-portal-arm-setup` | `pepper_portal_arm_setup` | — | One-off; installs QEMU binfmt on ARM Linux hosts |
 | `pepper-portal-arm` | `pepper_portal_arm` | 8088 | Host is ARM (Pi, Jetson, Apple Silicon) |
+| `ollama` | `pepper_portal_ollama` | 11434 | Always — the LLM backing the Conversation workspace |
+| `ollama-pull` | `pepper_portal_ollama_pull` | — | One-off; downloads the chat model into the volume |
 
-All three share the `pepper-portal-python:latest` tag and the `platform: linux/amd64` setting from
-the `x-pepper-portal` anchor, so they cannot disagree about architecture.
+The two portal services share the `pepper-portal-python:latest` tag and the `platform: linux/amd64`
+setting from the `x-pepper-portal` anchor, so they cannot disagree about architecture. `ollama`
+deliberately sits outside that anchor and runs at native architecture.
 
 The older `docker build` / `./run_container.sh` path still works, but you must pass the platform
 flag yourself, otherwise you get the arm64 image described above:
@@ -107,23 +110,65 @@ The Conversation workspace can run a private speech loop on the local computer:
 3. A local Ollama model generates Pepper's response.
 4. Pepper speaks the response through `ALTextToSpeech`, then listens again.
 
-Install the project-local speech environment once:
+Text-to-speech is not a service in this project — `ALTextToSpeech` synthesises and plays
+on the robot's own hardware, so there is nothing to install or containerise for it.
+
+### The LLM (Ollama) — a Compose service
+
+Ollama runs as the `ollama` service; no host install is required. It is **not** pinned to
+`linux/amd64` like the portal, so it runs natively for your CPU — emulated inference would
+be unusably slow.
+
+Download the chat model once into the `ollama-models` volume:
+
+```bash
+docker compose up ollama-pull      # one-off; exits when the pull finishes (~4.7 GB)
+```
+
+Then start the portal — Compose brings `ollama` up with it and waits for its healthcheck:
+
+```bash
+docker compose up pepper-portal    # or pepper-portal-arm on an ARM host
+```
+
+The portal reaches it at `http://ollama:11434` over the Compose network. Override the model
+with `OLLAMA_MODEL=mistral:7b docker compose up ollama-pull` (use the same variable when
+starting the portal so both agree). The model lives in a named volume and survives
+`docker compose down`; `docker compose down -v` deletes it and forces a re-pull.
+
+Ollama is also published on `127.0.0.1:11434` for debugging (`curl 127.0.0.1:11434/api/tags`).
+That mapping is loopback-only and the portal does not use it.
+
+**GPU.** On a Linux host with NVIDIA drivers and `nvidia-container-toolkit`, uncomment the
+`deploy.resources` block on the `ollama` service. Docker Desktop on macOS cannot pass through
+Metal, so a containerised Ollama is CPU-only there and noticeably slower than a host install —
+that is the cost of keeping everything in Docker.
+
+### Speech-to-text (still on the host)
+
+MLX Whisper needs Apple Silicon's Metal GPU, which Docker's Linux VM cannot reach, so this one
+piece still runs natively. Install it once:
 
 ```bash
 ./setup_local_speech.sh
 ```
 
-Start Ollama and the loopback-only MLX Whisper helper:
+Start the loopback-only helper and keep the terminal open:
 
 ```bash
 ./run_local_services.sh
 ```
 
-The default model is `llama3.1:8b`; download it with `ollama pull llama3.1:8b` if needed. The Whisper model downloads on first use. Open the portal, connect to Pepper, confirm the local services are ready, and select **Start conversation**. The loop continues until **Stop** is selected.
+The Whisper model downloads on first use. The portal reaches it at
+`host.docker.internal:8765`; on Linux hosts that name is supplied by the `extra_hosts` entry in
+`docker-compose.yaml`.
+
+Open the portal, connect to Pepper, confirm the local services are ready, and select
+**Start conversation**. The loop continues until **Stop** is selected.
 
 Pepper microphone captures are transferred through NAOqi, overwritten on the robot, and deleted from the computer after transcription. Ask permission before recording other people. Browser microphone recognition remains an optional fallback whose processing depends on the browser.
 
-Use `http://127.0.0.1:8080/?preview=1` to inspect the interface without connecting to a robot.
+Use `http://127.0.0.1:8081/?preview=1` to inspect the interface without connecting to a robot.
 
 ## Development Workflow
 
