@@ -1,3 +1,4 @@
+<!doctype html>
 <html lang="en">
 
 <head>
@@ -7,165 +8,338 @@
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='pepper_heart.png') }}" />
 
   <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070a12;
+      --panel: rgba(18, 24, 40, .78);
+      --panel-solid: #111729;
+      --panel-soft: rgba(27, 35, 57, .72);
+      --line: rgba(154, 177, 221, .12);
+      --line-bright: rgba(120, 224, 255, .34);
+      --text: #f5f8ff;
+      --muted: #91a0bd;
+      --cyan: #64e5ff;
+      --blue: #6b8cff;
+      --violet: #a87cff;
+      --green: #64f5b1;
+      --red: #ff6b83;
+      --amber: #ffc66d;
+      --shadow: 0 12px 40px rgba(0, 0, 0, .22);
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html { min-height: 100%; background: var(--bg); }
     body {
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-      margin: 2rem;
+      min-height: 100vh;
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 82% 12%, rgba(90, 102, 255, .09), transparent 32%),
+        linear-gradient(145deg, #070a12 0%, #0a0f1d 48%, #080a13 100%);
     }
-
-    .card {
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .08;
+      background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(circle at center, black, transparent 85%);
     }
+    a { color: var(--cyan); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: clamp(2.2rem, 4vw, 3.8rem); letter-spacing: -.05em; line-height: 1; }
+    h2 { margin-bottom: .45rem; font-size: clamp(1.35rem, 2.4vw, 2rem); letter-spacing: -.025em; }
+    h3 { color: #dbe5ff; }
+    label { display: block; margin-bottom: .42rem; color: #c8d4ee; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
-    label {
-      display: block;
-      font-weight: 600;
-      margin-bottom: .25rem;
-    }
-
-    input,
-    select {
+    input, select, textarea {
       width: 100%;
-      padding: .5rem;
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
+      padding: .82rem .9rem;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      outline: none;
+      color: var(--text);
+      background: rgba(5, 9, 18, .64);
+      font: inherit;
+      transition: border-color .2s, box-shadow .2s, background .2s;
     }
+    input:focus, select:focus, textarea:focus { border-color: var(--cyan); background: rgba(6, 12, 24, .92); box-shadow: 0 0 0 4px rgba(100,229,255,.1); }
+    textarea { resize: vertical; }
+    input::placeholder, textarea::placeholder { color: #596986; }
+    input[type="checkbox"] { accent-color: var(--cyan); }
 
     button {
-      padding: .5rem .9rem;
+      padding: .66rem .9rem;
+      border: 1px solid var(--line);
       border-radius: 10px;
-      border: 1px solid #d1d5db;
-      background: #fff;
+      color: #eaf3ff;
+      background: rgba(28, 37, 60, .66);
+      font: inherit;
+      font-weight: 650;
       cursor: pointer;
+      transition: transform .18s, border-color .18s, background .18s, box-shadow .18s;
     }
+    button:hover:not([disabled]) { transform: translateY(-1px); border-color: rgba(100,229,255,.38); background: rgba(38, 51, 82, .8); }
+    button:active:not([disabled]) { transform: translateY(0); }
+    button[disabled] { opacity: .38; cursor: not-allowed; }
+    .primary-action { color: #071018; border-color: transparent; background: linear-gradient(135deg, var(--cyan), #86a8ff); box-shadow: none; }
+    .primary-action:hover:not([disabled]) { background: linear-gradient(135deg, #8debff, #9fb8ff); }
+    .danger-action { color: #ffdbe1; border-color: rgba(255,107,131,.28); background: rgba(255,107,131,.11); }
 
-    button:hover {
-      background: #f9fafb;
-    }
+    .row { display: flex; gap: .75rem; flex-wrap: wrap; }
+    .row > * { flex: 1 1 auto; min-width: 190px; }
+    .muted { color: var(--muted); font-size: .9rem; line-height: 1.55; }
+    .ok { color: var(--green); }
+    .err { color: var(--red); }
+    .listening { color: var(--cyan); font-weight: 700; }
+    .mono { font-family: "SFMono-Regular", Consolas, monospace; font-size: .82rem; }
+    .stack { white-space: pre-wrap; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(3,7,14,.55); }
+    .notice { padding: .25rem .1rem; border: 0; color: #697892; background: transparent; font-size: .78rem; line-height: 1.5; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .7rem; }
 
-    .row {
-      display: flex;
-      gap: .5rem;
-      flex-wrap: wrap;
-    }
-
-    .row>* {
-      flex: 1 1 auto;
-      min-width: 220px;
-    }
-
-    .muted {
-      color: #6b7280;
-      font-size: .9rem;
-    }
-
-    .ok {
-      color: #16a34a;
-    }
-
-    .err {
-      color: #dc2626;
-    }
-
-    .stack {
-      white-space: pre-wrap;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: .85rem;
-      background: #f9fafb;
-      padding: .75rem;
-      border-radius: 8px;
-      border: 1px solid #e5e7eb;
-    }
-
-    .notice {
-      background: #fffbeb;
-      border: 1px solid #fde68a;
-      padding: .75rem;
-      border-radius: 8px;
-    }
-
-    .anim-buttons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: .5rem;
-      margin-top: .5rem;
-    }
-
-    .anim-buttons button[disabled] {
-      background: #e5e7eb;
-      cursor: not-allowed;
-    }
-
-    .anim-btn {
-      padding: .5rem .75rem;
-      border-radius: 10px;
-      border: 1px solid #d1d5db;
-      background: #fff;
-      cursor: pointer;
-    }
-
-    .anim-btn:hover {
-      background: #f9fafb;
-    }
-
-    .anim-btn.running {
-      background: #f3f4f6;
-      color: #9ca3af;
-      border-color: #e5e7eb;
-    }
-
-    .grid {
+    .connect-gate {
+      position: fixed;
+      z-index: 100;
+      inset: 0;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: .5rem;
+      grid-template-columns: minmax(0, 1.25fr) minmax(380px, .75fr);
+      min-height: 100vh;
+      overflow: auto;
+      background:
+        radial-gradient(circle at 27% 42%, rgba(88, 211, 255, .16), transparent 25%),
+        radial-gradient(circle at 76% 20%, rgba(118, 96, 255, .18), transparent 30%),
+        #070a12;
+      transition: opacity .5s, visibility .5s, transform .5s;
     }
+    .connect-gate.hidden { opacity: 0; visibility: hidden; transform: scale(1.015); pointer-events: none; }
+    .connect-visual { position: relative; display: flex; flex-direction: column; justify-content: space-between; min-height: 100vh; padding: clamp(2rem, 5vw, 5rem); overflow: hidden; }
+    .brand { display: flex; align-items: center; gap: .8rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid rgba(100,229,255,.35); border-radius: 12px; color: var(--cyan); background: rgba(100,229,255,.08); box-shadow: 0 0 30px rgba(100,229,255,.12); }
+    .hero-copy { position: relative; z-index: 2; max-width: 760px; padding: 5vh 0; }
+    .eyebrow { margin-bottom: 1rem; color: var(--cyan); font-size: .78rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
+    .hero-copy h1 span { display: block; color: transparent; background: linear-gradient(110deg, #fff 15%, #89eaff 55%, #9e96ff); background-clip: text; -webkit-background-clip: text; }
+    .hero-copy p { max-width: 610px; color: #9aaac7; font-size: clamp(1rem, 1.5vw, 1.2rem); line-height: 1.7; }
+    .hero-meta { display: flex; gap: 2rem; color: #71809d; font-size: .76rem; letter-spacing: .08em; text-transform: uppercase; }
+    .pepper-orbit { position: absolute; right: -10vw; bottom: -18vw; width: min(68vw, 850px); aspect-ratio: 1; border: 1px solid rgba(100,229,255,.12); border-radius: 50%; animation: orbitFloat 8s ease-in-out infinite; }
+    .pepper-orbit::before, .pepper-orbit::after { content: ""; position: absolute; border-radius: 50%; }
+    .pepper-orbit::before { inset: 12%; border: 1px dashed rgba(132,143,255,.2); }
+    .pepper-orbit::after { inset: 28%; background: radial-gradient(circle at 40% 35%, rgba(255,255,255,.5), rgba(100,229,255,.12) 28%, rgba(58,73,133,.08) 60%, transparent 70%); filter: blur(2px); box-shadow: 0 0 100px rgba(100,229,255,.14); }
+    @keyframes orbitFloat { 50% { transform: translateY(-18px) rotate(3deg); } }
+    .connect-panel { position: relative; z-index: 2; display: flex; align-items: center; padding: clamp(1.5rem, 4vw, 4rem); border-left: 1px solid var(--line); background: rgba(8,12,22,.64); backdrop-filter: blur(24px); }
+    .connect-box { width: 100%; max-width: 470px; margin: auto; }
+    .connect-icon { display: grid; place-items: center; width: 74px; height: 74px; margin-bottom: 2rem; border: 1px solid var(--line-bright); border-radius: 24px; background: linear-gradient(145deg, rgba(100,229,255,.16), rgba(107,140,255,.08)); box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+    .connect-icon img { width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 0 12px rgba(100,229,255,.5)); }
+    .connect-box h2 { font-size: 2rem; }
+    .connect-form { display: grid; gap: 1rem; margin-top: 2rem; }
+    .connect-fields { display: grid; grid-template-columns: 1fr 110px; gap: .75rem; }
+    .connect-submit { width: 100%; min-height: 52px; margin-top: .3rem; font-size: 1rem; }
+    #connStatus { min-height: 24px; margin-top: .8rem; }
+    .security-note { display: flex; gap: .65rem; margin-top: 1.5rem; color: #64738e; font-size: .78rem; line-height: 1.5; }
+    .preview-link { display: inline-block; margin-top: .4rem; color: #8494b1; font-size: .78rem; text-decoration: none; }
+    .preview-link:hover { color: var(--cyan); }
 
-    .mono {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: .85rem;
+    .app-shell { min-height: 100vh; opacity: 1; transition: opacity .4s; }
+    .app-shell.locked { opacity: 0; pointer-events: none; height: 100vh; overflow: hidden; }
+    .sidebar { position: fixed; z-index: 30; inset: 0 auto 0 0; display: flex; flex-direction: column; width: 216px; padding: 1.25rem .8rem; border-right: 1px solid var(--line); background: rgba(7,10,18,.72); backdrop-filter: blur(16px); }
+    .sidebar .brand { padding: .15rem .55rem 2.5rem; font-size: .82rem; }
+    .sidebar .brand-mark { width: 32px; height: 32px; border-radius: 10px; }
+    .nav-label { display: none; }
+    .nav-list { display: grid; gap: .35rem; }
+    .nav-button { display: flex; align-items: center; gap: .75rem; width: 100%; padding: .72rem .8rem; border-color: transparent; color: #8290aa; background: transparent; text-align: left; }
+    .nav-button:hover:not([disabled]) { background: rgba(100,229,255,.06); box-shadow: none; }
+    .nav-button.active { color: #f3fbff; border-color: transparent; background: rgba(100,229,255,.08); box-shadow: inset 2px 0 var(--cyan); }
+    .nav-icon { width: 20px; color: var(--cyan); font-size: 1rem; text-align: center; }
+    .sidebar-footer { display: none; }
+
+    .topbar { position: fixed; z-index: 25; top: 0; right: 0; left: 216px; display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 clamp(1.2rem, 3vw, 2.5rem); border-bottom: 1px solid var(--line); background: rgba(7,10,18,.66); backdrop-filter: blur(16px); }
+    .topbar-context { color: #657590; font-size: .72rem; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
+    .connection-cluster { display: flex; align-items: center; gap: .7rem; }
+    .connection-pill { display: flex; align-items: center; gap: .7rem; padding: .55rem .8rem; border: 1px solid rgba(100,245,177,.2); border-radius: 999px; color: #c9fbe2; background: rgba(100,245,177,.07); font-size: .78rem; font-weight: 700; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 14px var(--green); }
+    .connection-pill.offline { color: #a5b0c4; border-color: var(--line); background: rgba(255,255,255,.03); }
+    .connection-pill.offline .status-dot { background: #64738e; box-shadow: none; }
+    .ghost-button { padding: .55rem .75rem; color: #7f8ca4; background: transparent; font-size: .76rem; }
+
+    .workspace { min-height: 100vh; margin-left: 216px; padding: calc(64px + clamp(1.5rem, 3vw, 2.5rem)) clamp(1.2rem, 3vw, 3rem) 3rem; overflow-x: hidden; }
+    .workspace-panel { min-width: 0; }
+    .view { display: none; max-width: 1240px; margin: 0 auto; animation: viewIn .36s ease both; }
+    .view.active { display: block; }
+    @keyframes viewIn { from { opacity: 0; transform: translateY(10px); } }
+    .view-header { display: flex; justify-content: space-between; align-items: end; gap: 2rem; margin-bottom: 1.25rem; }
+    .view-kicker { color: var(--cyan); font-size: .7rem; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
+    .view-header p { max-width: 620px; margin-bottom: 0; color: var(--muted); line-height: 1.6; }
+    .card { padding: clamp(1.1rem, 2.3vw, 1.6rem); border: 1px solid var(--line); border-radius: 16px; background: rgba(15,21,35,.66); box-shadow: var(--shadow); backdrop-filter: blur(14px); }
+    .card + .card { margin-top: 1rem; }
+    .card-header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; margin-bottom: 1.25rem; }
+    .section-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 1rem; }
+    .control-strip { display: flex; gap: .65rem; flex-wrap: wrap; align-items: center; }
+    .service-row { display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: end; }
+    .service-status { margin-top: .65rem; padding: .55rem .7rem; border-left: 2px solid rgba(100,229,255,.35); background: rgba(100,229,255,.025); }
+
+    .conversation-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .55fr); gap: 1rem; align-items: start; }
+    .conversation-main { min-height: 660px; padding: 0; overflow: hidden; }
+    .session-hero { display: grid; grid-template-columns: 1fr auto; gap: 1.5rem; align-items: center; padding: 1.25rem 1.4rem; border-bottom: 1px solid var(--line); background: transparent; }
+    .session-title { display: flex; align-items: center; gap: 1rem; }
+    .session-orb { display: grid; flex: 0 0 auto; place-items: center; width: 40px; height: 40px; border: 1px solid rgba(100,229,255,.22); border-radius: 50%; color: var(--cyan); background: rgba(100,229,255,.04); }
+    .session-hero h2 { margin-bottom: .25rem; }
+    .session-actions { display: flex; gap: .55rem; flex-wrap: wrap; justify-content: flex-end; }
+    .session-actions .primary-action { min-width: 170px; }
+    .dialogue-stage { padding: 1.35rem; }
+    .dialogue-label { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .65rem; }
+    .dialogue-label h3 { margin: 0; }
+    .privacy-tag { color: #71809b; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+    .composer { margin-top: 1rem; padding: .8rem; border: 1px solid var(--line); border-radius: 12px; background: rgba(5,9,18,.34); }
+    .composer textarea { min-height: 92px; border: 0; padding: .25rem; background: transparent; box-shadow: none; }
+    .composer-actions { display: flex; justify-content: space-between; align-items: center; gap: .7rem; margin-top: .7rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+    .composer-actions > div { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .conversation-sidebar { display: grid; gap: .75rem; }
+    .side-card { padding: 1rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(15,21,35,.48); box-shadow: none; }
+    .side-card h3 { margin-bottom: .25rem; font-size: 1rem; }
+    .side-card .muted { font-size: .8rem; }
+    .side-card label + select { margin-bottom: .65rem; }
+    .service-indicator { display: flex; align-items: flex-start; gap: .65rem; margin-top: .65rem; padding: .45rem 0; border: 0; background: transparent; }
+    .service-indicator::before { content: ""; flex: 0 0 auto; width: 7px; height: 7px; margin-top: .38rem; border-radius: 50%; background: #65738c; }
+    .conversation-options { display: grid; gap: .55rem; margin-top: .9rem; }
+    .conversation-options label { display: flex; align-items: flex-start; gap: .55rem; margin: 0; color: #9caac2; font-size: .8rem; font-weight: 500; line-height: 1.45; letter-spacing: 0; text-transform: none; }
+    .conversation-options input { flex: 0 0 auto; margin-top: .15rem; }
+    @media (max-width: 1320px) {
+      .conversation-layout { grid-template-columns: 1fr; }
+      .conversation-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .conversation-sidebar .notice { grid-column: 1 / -1; }
+      .session-hero { grid-template-columns: 1fr auto; }
     }
+    .conversation { display: flex; flex-direction: column; gap: .8rem; min-height: 280px; max-height: 500px; overflow-y: auto; padding: 1rem; border: 0; border-radius: 12px; background: rgba(3,7,14,.34); }
+    .message { max-width: min(84%, 680px); padding: .78rem .95rem; border-radius: 16px; white-space: pre-wrap; line-height: 1.5; }
+    .message.user { align-self: flex-end; color: #e9faff; background: linear-gradient(135deg, rgba(55,143,190,.52), rgba(72,91,180,.55)); border-bottom-right-radius: 5px; }
+    .message.assistant { align-self: flex-start; background: rgba(35,43,66,.9); border: 1px solid var(--line); border-bottom-left-radius: 5px; }
+    .conversation-controls { display: grid; gap: 1rem; }
+    .conversation-launch { padding: 1.2rem; border: 1px solid rgba(100,229,255,.18); border-radius: 18px; background: radial-gradient(circle at top right, rgba(100,229,255,.1), transparent 55%), rgba(6,11,21,.6); }
+    .pulse-ring { position: relative; display: grid; place-items: center; width: 92px; height: 92px; margin: .2rem auto 1.2rem; border: 1px solid rgba(100,229,255,.28); border-radius: 50%; color: var(--cyan); background: rgba(100,229,255,.06); }
+    .pulse-ring::before, .pulse-ring::after { content:""; position:absolute; inset:-10px; border:1px solid rgba(100,229,255,.12); border-radius:50%; }
+    .pulse-ring::after { inset:-20px; opacity:.45; }
+    .camera-view { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 10; margin-top: 1rem; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; color: #71809b; background: radial-gradient(circle, #182136, #050810 75%); }
+    .camera-view img { display: none; width: 100%; height: 100%; object-fit: contain; }
+    .camera-placeholder { padding: 1rem; text-align: center; }
+    .camera-live-badge { position: absolute; top: 1rem; left: 1rem; display: none; padding: .32rem .58rem; border-radius: 999px; color: #fff; background: rgba(255,71,99,.9); font-size: .7rem; font-weight: 800; letter-spacing: .1em; }
+    #animCategories { display: grid !important; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: .8rem !important; }
+    #animCategories > div { padding: .9rem !important; border: 1px solid var(--line) !important; border-radius: 14px !important; background: rgba(4,8,16,.38); }
+    .anim-btn { padding: .48rem .68rem; border-radius: 9px; color: #aebbd3; background: rgba(24,32,51,.72); font-size: .78rem; }
+    .anim-btn.running { color: #5d6980; }
 
-    button[disabled] {
-      background: #e5e7eb;
-      cursor: not-allowed;
-      color: #9ca3af;
+    @media (max-width: 980px) {
+      .connect-gate { grid-template-columns: 1fr; }
+      .connect-visual { min-height: 48vh; padding-bottom: 2rem; }
+      .connect-panel { border-top: 1px solid var(--line); border-left: 0; }
+      .pepper-orbit { opacity: .5; }
+      .sidebar { inset: auto 0 0; width: auto; height: 70px; flex-direction: row; align-items: center; padding: .55rem; border-top: 1px solid var(--line); border-right: 0; }
+      .sidebar .brand, .nav-label, .sidebar-footer { display: none; }
+      .nav-list { grid-template-columns: repeat(5,1fr); width: 100%; gap: .2rem; }
+      .nav-button { flex-direction: column; gap: .15rem; justify-content: center; padding: .45rem .2rem; font-size: .65rem; text-align:center; }
+      .nav-button.active { box-shadow: inset 0 -2px var(--cyan); }
+      .topbar { left: 0; }
+      .workspace { margin-left: 0; padding-bottom: 90px; }
+      .conversation-layout, .section-grid { grid-template-columns: 1fr; }
+      .conversation-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .connect-fields, .service-row { grid-template-columns: 1fr; }
+      .connect-visual { min-height: 42vh; }
+      .hero-meta { gap: .8rem; flex-wrap: wrap; }
+      .topbar-context { display: none; }
+      .topbar { justify-content: flex-end; }
+      .view-header { display: block; }
+      .connection-pill { font-size: .7rem; }
+      .session-hero { grid-template-columns: 1fr; }
+      .session-actions { justify-content: flex-start; }
+      .conversation-sidebar { grid-template-columns: 1fr; }
+      .composer-actions { align-items: stretch; flex-direction: column; }
     }
   </style>
 </head>
 
 <body>
-  <h1>Pepper Control</h1>
-  <p class="muted">Connect to your Pepper and trigger audio or animations from the browser. Your Pepper IP & port are
-    stored in localStorage on this device only.</p>
-
-  <div class="card">
-    <div class="row">
-      <div>
-        <label for="pepperIp">Pepper IP</label>
-        <input id="pepperIp" placeholder="e.g., 192.168.1.6" />
+  <section id="connectGate" class="connect-gate" aria-label="Connect to Pepper">
+    <div class="connect-visual">
+      <div class="brand"><span class="brand-mark">P</span><span>Pepper Portal</span></div>
+      <div class="hero-copy">
+        <div class="eyebrow">Local intelligence · Physical presence</div>
+        <h1>Meet Pepper.<span>Bring the room to life.</span></h1>
+        <p>A private, local control space for natural conversation, live vision, movement and expression—all running from this Mac.</p>
       </div>
-      <div>
-        <label for="pepperPort">Port</label>
-        <input id="pepperPort" placeholder="9559" />
-      </div>
-      <div style="align-self:end">
-        <button onclick="saveIp()">Save</button>
-        <button onclick="testConnect()">Test connection</button>
+      <div class="hero-meta"><span>NAOqi 2.5</span><span>Local Llama</span><span>Private speech</span></div>
+      <div class="pepper-orbit" aria-hidden="true"></div>
+    </div>
+    <div class="connect-panel">
+      <div class="connect-box">
+        <div class="connect-icon"><img src="{{ url_for('static', filename='pepper_heart.png') }}" alt="" /></div>
+        <div class="eyebrow">Robot link</div>
+        <h2>Connect to Pepper</h2>
+        <p class="muted">Make sure Pepper has finished booting and is on the same network as this computer.</p>
+        <div class="connect-form">
+          <div class="connect-fields">
+            <div>
+              <label for="pepperIp">Pepper IP address</label>
+              <input id="pepperIp" inputmode="decimal" placeholder="192.168.1.4" autocomplete="off" />
+            </div>
+            <div>
+              <label for="pepperPort">Port</label>
+              <input id="pepperPort" inputmode="numeric" placeholder="9559" autocomplete="off" />
+            </div>
+          </div>
+          <button id="btnTestConnect" class="primary-action connect-submit" onclick="testConnect()">Connect to Pepper</button>
+        </div>
+        <div id="connStatus" class="muted" role="status">Ready when Pepper is.</div>
+        <a class="preview-link" href="?preview=1">Preview the interface without Pepper →</a>
+        <div class="security-note"><span>◈</span><span>The robot address stays in this browser. Llama and Pepper microphone transcription run locally on this Mac.</span></div>
       </div>
     </div>
-    <div id="connStatus" class="muted" style="margin-top:.5rem"></div>
-    <div class="notice" style="margin-top:.5rem">On first visit, you will be prompted for IP and port; the app will
-      auto-connect.</div>
-  </div>
+  </section>
 
-  <div class="card">
+  <div id="appShell" class="app-shell locked">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">P</span><span>Pepper Portal</span></div>
+      <div class="nav-label">Workspace</div>
+      <nav class="nav-list" aria-label="Pepper workspace">
+        <button class="nav-button active" data-view="conversation" onclick="showView('conversation')"><span class="nav-icon">◉</span><span>Conversation</span></button>
+        <button class="nav-button" data-view="vision" onclick="showView('vision')"><span class="nav-icon">⌾</span><span>Vision</span></button>
+        <button class="nav-button" data-view="control" onclick="showView('control')"><span class="nav-icon">◇</span><span>Robot Control</span></button>
+        <button class="nav-button" data-view="media" onclick="showView('media')"><span class="nav-icon">♫</span><span>Media</span></button>
+        <button class="nav-button" data-view="diagnostics" onclick="showView('diagnostics')"><span class="nav-icon">⌁</span><span>Diagnostics</span></button>
+      </nav>
+      <div class="sidebar-footer">Pepper Portal<br>Local session · Private network</div>
+    </aside>
+
+    <header class="topbar">
+      <div id="topbarContext" class="topbar-context">Conversation workspace</div>
+      <div class="connection-cluster">
+        <div id="globalConnectionStatus" class="connection-pill offline"><span class="status-dot"></span><span id="globalConnectionText">Pepper offline</span></div>
+        <button class="ghost-button" onclick="disconnectUi()">Disconnect</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <div class="workspace-panel view-header" data-view="conversation">
+        <div><div class="view-kicker">Local intelligence</div><h1>Conversation</h1><p>Talk naturally. Pepper listens, thinks locally, responds aloud, then waits for your next turn.</p></div>
+      </div>
+      <div class="workspace-panel view-header" data-view="vision" hidden>
+        <div><div class="view-kicker">Visual system</div><h1>Vision</h1><p>See the room from Pepper's perspective and capture a moment when you need it.</p></div>
+      </div>
+      <div class="workspace-panel view-header" data-view="control" hidden>
+        <div><div class="view-kicker">Motion & presence</div><h1>Robot Control</h1><p>Manage Pepper's physical state, autonomous presence and expressive animations.</p></div>
+      </div>
+      <div class="workspace-panel view-header" data-view="media" hidden>
+        <div><div class="view-kicker">Playback</div><h1>Media</h1><p>Play audio already stored on Pepper and launch reusable robot scripts.</p></div>
+      </div>
+      <div class="workspace-panel view-header" data-view="diagnostics" hidden>
+        <div><div class="view-kicker">System trace</div><h1>Diagnostics</h1><p>Inspect local services, activity logs and script output while refining the experience.</p></div>
+      </div>
+
+  <div class="card workspace-panel" data-view="control" hidden>
     <h2>Robot Modes</h2>
-    <div style="margin-bottom:.5rem">
-      <button id="btnCheckSleepMode" onclick="fetchModeStatus()">Check Status</button>
-    </div>
     <div class="row">
       <div>
         <label>Sleep Mode</label>
@@ -174,31 +348,166 @@
           <button id="btnSleepOff" onclick="setSleepMode(false)">Deactivate Sleep (Wake)</button>
         </div>
       </div>
+      <div>
+        <label>Animation Mode</label>
+        <div class="row" style="align-items:center">
+          <button id="btnAnimOn" onclick="setAnimationMode(true)">Activate Animation Mode</button>
+          <button id="btnAnimOff" onclick="setAnimationMode(false)">Deactivate Animation Mode</button>
+        </div>
+      </div>
     </div>
     <div id="modeStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
 
-  <div class="card">
-    <h2>Scripts</h2>
-    <p class="muted">These are Python scripts in the app's <code>scripts/</code> folder. Click to run. The page will
-      pass Pepper IP/port to the script.</p>
-    <div class="row" style="margin-bottom:1rem">
+  <div class="card workspace-panel" id="visionCard" data-view="vision" hidden>
+    <h2>Pepper Vision</h2>
+    <p class="muted">View Pepper's top or bottom camera. The preview is off by default and frames are not stored by
+      the server.</p>
+    <div class="row">
       <div>
-        <label for="scriptsLang">Language</label>
-        <select id="scriptsLang">
-          <option value="English" selected>English</option>
-          <option value="IsiZulu">IsiZulu</option>
+        <label for="cameraSelect">Camera</label>
+        <select id="cameraSelect">
+          <option value="top">Top camera</option>
+          <option value="bottom">Bottom camera</option>
         </select>
       </div>
       <div>
-        <label for="scriptsName">Name (for birthday.py)</label>
-        <input id="scriptsName" type="text" placeholder="e.g. Vicky" />
+        <label for="cameraResolution">Resolution</label>
+        <select id="cameraResolution">
+          <option value="160x120">160 × 120</option>
+          <option value="320x240" selected>320 × 240</option>
+          <option value="640x480">640 × 480</option>
+        </select>
       </div>
-      <div style="align-self:end">
-        <button id="btnStopScript" onclick="stopScript()" disabled>Stop Running Script</button>
+      <div>
+        <label for="cameraFps">Frame rate</label>
+        <select id="cameraFps">
+          <option value="1">1 fps</option>
+          <option value="2" selected>2 fps</option>
+          <option value="5">5 fps</option>
+        </select>
       </div>
     </div>
+    <div class="row" style="margin-top:.75rem">
+      <div>
+        <button id="btnVisionStart" onclick="startVision()">Start Vision</button>
+        <button id="btnVisionStop" onclick="stopVision()" disabled>Stop Vision</button>
+        <button id="btnVisionSnapshot" onclick="saveVisionSnapshot()">Save Snapshot</button>
+      </div>
+    </div>
+    <div id="cameraStatus" class="muted" style="margin-top:.5rem" role="status">Camera preview is off.</div>
+    <div class="camera-view">
+      <img id="cameraImage" alt="Live view from Pepper's selected camera" />
+      <div id="cameraPlaceholder" class="camera-placeholder">Camera preview is off</div>
+      <span id="cameraLiveBadge" class="camera-live-badge">LIVE</span>
+    </div>
+    <div class="notice" style="margin-top:.75rem">Only use the camera where people know they may be viewed or
+      recorded.</div>
+  </div>
+
+  <div class="workspace-panel conversation-layout" id="conversationCard" data-view="conversation">
+    <section class="card conversation-main">
+      <div class="session-hero">
+        <div class="session-title">
+          <div class="session-orb" aria-hidden="true">◉</div>
+          <div>
+            <div class="view-kicker">Live dialogue</div>
+            <h2>Talk with Pepper</h2>
+            <p class="muted" style="margin:0">Pepper listens, Llama thinks locally, then Pepper replies aloud.</p>
+          </div>
+        </div>
+        <div class="session-actions">
+          <button id="btnConversationStart" class="primary-action" onclick="startContinuousConversation()" disabled>Start conversation</button>
+          <button id="btnConversationStop" class="danger-action" onclick="stopContinuousConversation()" disabled>Stop</button>
+        </div>
+      </div>
+
+      <div class="dialogue-stage">
+        <div class="dialogue-label">
+          <h3>Dialogue</h3>
+          <span class="privacy-tag">Local session</span>
+        </div>
+        <div id="conversation" class="conversation" aria-live="polite">
+          <div id="conversationEmpty" class="muted">Your conversation will appear here. Start a continuous session or type below.</div>
+        </div>
+
+        <div class="composer">
+          <label for="heardSpeech">What Pepper heard</label>
+          <textarea id="heardSpeech" rows="3" placeholder="Speech appears here—or type what you want to say…"></textarea>
+          <div id="interimSpeech" class="muted" aria-live="polite"></div>
+          <div class="composer-actions">
+            <div>
+              <button id="btnPepperListen" onclick="listenThroughPepper()" disabled>Listen through Pepper</button>
+              <button id="btnListenStart" onclick="startListening()">Use Mac mic</button>
+              <button id="btnListenStop" onclick="stopListening()" disabled>Stop mic</button>
+            </div>
+            <button id="btnSendToLlama" class="primary-action" onclick="sendToLlama()" disabled>Send to Llama →</button>
+          </div>
+        </div>
+        <div id="speechStatus" class="muted" style="margin-top:.65rem" role="status">Microphone is idle.</div>
+        <button class="ghost-button" onclick="clearConversation()" style="margin-top:.4rem">Clear dialogue</button>
+      </div>
+    </section>
+
+    <aside class="conversation-sidebar">
+      <div class="side-card">
+        <h3>Local intelligence</h3>
+        <p class="muted">Choose the Ollama model that gives Pepper its voice.</p>
+        <label for="localAiModel">Llama model</label>
+        <select id="localAiModel" disabled><option>Checking Ollama…</option></select>
+        <button id="btnCheckLocalAi" onclick="checkLocalAi()">Check local AI</button>
+        <a id="ollamaDownload" href="https://ollama.com/download" target="_blank" rel="noopener" style="display:none">Download Ollama</a>
+        <div class="service-indicator"><div id="localAiStatus" class="muted" role="status">Checking for a local Llama installation…</div></div>
+      </div>
+
+      <div class="side-card">
+        <h3>Listening</h3>
+        <p class="muted">A turn ends after three seconds of silence.</p>
+        <label for="pepperListenDuration">Maximum turn length</label>
+        <select id="pepperListenDuration">
+          <option value="15">Up to 15 seconds</option>
+          <option value="30" selected>Up to 30 seconds</option>
+          <option value="45">Up to 45 seconds</option>
+        </select>
+        <button id="btnCheckLocalSpeech" onclick="checkLocalSpeech()">Check speech recognition</button>
+        <a id="localSpeechSetup" href="https://pypi.org/project/mlx-whisper/" target="_blank" rel="noopener" style="display:none">MLX Whisper setup</a>
+        <div class="service-indicator"><div id="localSpeechStatus" class="muted" role="status">Checking local speech recognition…</div></div>
+        <div class="conversation-options">
+          <label><input id="autoSendSpeech" type="checkbox" style="width:auto"> Send Mac microphone speech automatically</label>
+          <label><input id="pepperSpeaks" type="checkbox" style="width:auto" checked> Pepper speaks Llama's reply when connected</label>
+        </div>
+      </div>
+
+      <div class="notice">Pepper microphone audio is transcribed locally and temporary captures are deleted. Ask permission before recording other people.</div>
+    </aside>
+  </div>
+
+  <div class="card workspace-panel" data-view="diagnostics" hidden>
+    <h2>Local Intelligence</h2>
+    <p class="muted">Ollama and MLX Whisper run on this Mac. Their live readiness appears in the Conversation workspace.</p>
+    <div class="control-strip">
+      <button onclick="checkLocalAi(); checkLocalSpeech();">Run service check</button>
+      <a href="https://ollama.com/download" target="_blank" rel="noopener">Ollama</a>
+      <a href="https://pypi.org/project/mlx-whisper/" target="_blank" rel="noopener">MLX Whisper</a>
+    </div>
+  </div>
+
+  <div class="card workspace-panel" data-view="media" hidden>
+    <h2>Scripts</h2>
+    <p class="muted">These are Python scripts in the app's <code>scripts/</code> folder. Click to run. The page will
+      pass Pepper IP/port to the script.</p>
     <div class="row">
+      <div>
+        <label for="scriptsLang">Language</label>
+        <select id="scriptsLang"><option value="English">English</option><option value="IsiZulu">IsiZulu</option></select>
+      </div>
+      <div>
+        <label for="scriptsName">Name</label>
+        <input id="scriptsName" placeholder="Used by personalised scripts" />
+      </div>
+      <div style="align-self:end"><button id="btnStopScript" onclick="stopScript()" disabled>Stop running script</button></div>
+    </div>
+    <div class="row" style="margin-top:.75rem">
       <div>
         <label>Scripts</label>
         <div id="scriptsList" class="grid"></div>
@@ -208,20 +517,15 @@
     <pre id="scriptsOutput" class="stack mono" style="margin-top:.5rem; max-height:260px; overflow:auto"></pre>
   </div>
 
-  <div class="card">
+  <div class="card workspace-panel" data-view="control" hidden>
     <h2>Behaviors</h2>
-    <p class="muted">Choregraphe behaviors installed on Pepper (via <code>ALBehaviorManager</code>). Click to run.</p>
-    <div class="row" style="margin-bottom:.5rem">
-      <div style="align-self:end">
-        <button onclick="fetchBehaviors()">Refresh</button>
-        <button onclick="stopAllBehaviors()">Stop All</button>
-      </div>
-    </div>
-    <div id="behaviorsList" class="grid"></div>
+    <p class="muted">Run Choregraphe behaviors installed on Pepper.</p>
+    <div class="control-strip"><button onclick="fetchBehaviors()">Refresh</button><button onclick="stopAllBehaviors()">Stop all</button></div>
+    <div id="behaviorsList" class="grid" style="margin-top:.75rem"></div>
     <div id="behaviorsStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
 
-  <div class="card">
+  <div class="card workspace-panel" data-view="media" hidden>
     <h2>Audio</h2>
     <div class="row">
       <div>
@@ -237,7 +541,7 @@
     <div id="audioStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
 
-  <div class="card">
+  <div class="card workspace-panel" data-view="control" hidden>
     <h2>Animations</h2>
     <p class="muted" style="margin-bottom:.5rem">Click an animation to run it (synchronous). Categories are grouped
       below.</p>
@@ -278,70 +582,48 @@
     <div id="animStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
 
-  <!-- ✨ NEW small section BEFORE logs: load & run saved scene, and an editor that can load a saved scene -->
-  <div class="card">
-    <h2>Create / Load Scene JSON</h2>
-
+  <div class="card workspace-panel" data-view="media" hidden>
+    <h2>Scenes</h2>
+    <p class="muted">Load, edit, save and run the scripted scenes already included with the Vicky project.</p>
     <div class="row">
-      <div>
-        <label for="sceneName">Script Name</label>
-        <input id="sceneName" placeholder="e.g., demo_scene" />
-      </div>
-      <div>
-        <label for="scenePicker">Load Saved Scene</label>
-        <div class="row" style="align-items:center">
-          <select id="scenePicker" onchange="loadScene()">
-            <option value="">-- Select a scene --</option>
-          </select>
-          <button onclick="refreshScenes()">Refresh</button>
-        </div>
-      </div>
+      <div><label for="sceneName">Scene name</label><input id="sceneName" placeholder="demo_scene" /></div>
+      <div><label for="scenePicker">Saved scenes</label><select id="scenePicker" onchange="loadScene()"><option value="">Select a scene</option></select></div>
+      <div style="align-self:end"><button onclick="refreshScenes()">Refresh</button></div>
     </div>
-
-    <div class="row">
-      <div style="width:100%">
-        <label>Scene Steps (JSON array)</label>
-        <textarea id="sceneSteps" rows="10" style="width:100%; font-family:monospace">[
-    { "audiofile": "greeting.wav", "time": 0.0,
-      "action": "say", "text": "Hello there!" },
-    { "audiofile": "greeting.wav", "time": 0.0,
-      "action": "run", "animation": "animations/Stand/Gestures/Hey_4" },
-
-    { "audiofile": "greeting.wav", "time": 5.0,
-      "action": "say", "text": "Let me show you something interesting." },
-    { "audiofile": "greeting.wav", "time": 5.0,
-      "action": "run", "animation": "animations/Stand/Gestures/ShowSky_5" },
-
-    { "audiofile": "greeting.wav", "time": 10,
-      "action": "say", "text": "Our ancestors used tools like this." },
-    { "audiofile": "greeting.wav", "time": 10,
-      "action": "run", "animation": "animations/Stand/Gestures/Give_4" },
-
-    { "audiofile": "greeting.wav", "time": 15,
-      "action": "say", "text": "And that is how it all began." },
-    { "audiofile": "greeting.wav", "time": 15,
-      "action": "run", "animation": "animations/Stand/Gestures/Explain_3" }
-]</textarea>
-      </div>
-    </div>
-
-    <div style="margin-top:1rem">
-      <button onclick="saveScene()">Save Scene JSON</button>
-      <button onclick="runScene()">Run Scene</button>
-      <div id="sceneStatus" class="muted" style="margin-top:.5rem"></div>
-    </div>
+    <div style="margin-top:.75rem"><label for="sceneSteps">Scene steps</label><textarea id="sceneSteps" rows="10" class="mono" placeholder="[]"></textarea></div>
+    <div class="control-strip" style="margin-top:.75rem"><button onclick="saveScene()">Save scene</button><button class="primary-action" onclick="runScene()">Run scene</button></div>
+    <div id="sceneStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
-  <!-- ✨ END new small section -->
 
-  <div class="card">
+  <div class="card workspace-panel" data-view="diagnostics" hidden>
     <h2>Logs</h2>
     <div id="logs" class="stack" style="min-height:100px"></div>
   </div>
 
+    </main>
+  </div>
+
   <script>
     // safer JSON helper that tolerates non-JSON error pages
-    async function postJSON(url, data) {
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    async function postJSON(url, data, timeoutMs) {
+      const controller = new AbortController();
+      const timeout = setTimeout(function () { controller.abort(); }, timeoutMs || 130000);
+      let res;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+          signal: controller.signal
+        });
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          throw new Error('Request timed out. Check that the local service is running.');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
       const text = await res.text();
       let json = null;
       try { json = JSON.parse(text); } catch (e) {
@@ -356,6 +638,76 @@
     const audioStatus = document.getElementById('audioStatus');
     const animStatus = document.getElementById('animStatus');
     const logs = document.getElementById('logs');
+    const cameraImage = document.getElementById('cameraImage');
+    const cameraPlaceholder = document.getElementById('cameraPlaceholder');
+    const cameraLiveBadge = document.getElementById('cameraLiveBadge');
+    const cameraStatus = document.getElementById('cameraStatus');
+    let cameraRunning = false;
+    let cameraRequestActive = false;
+    let cameraTimer = null;
+    let cameraObjectUrl = null;
+    let cameraLastBlob = null;
+    let pepperConnected = false;
+    let pepperConnectActive = false;
+    const interfacePreview = new URLSearchParams(window.location.search).get('preview') === '1';
+
+    const viewLabels = {
+      conversation: 'Conversation workspace',
+      vision: 'Vision workspace',
+      control: 'Robot control workspace',
+      media: 'Media workspace',
+      diagnostics: 'Diagnostics workspace'
+    };
+
+    function showView(viewName) {
+      document.querySelectorAll('.workspace-panel').forEach(function (panel) {
+        panel.hidden = panel.dataset.view !== viewName;
+      });
+      document.querySelectorAll('.nav-button').forEach(function (button) {
+        button.classList.toggle('active', button.dataset.view === viewName);
+      });
+      document.getElementById('topbarContext').textContent = viewLabels[viewName] || 'Pepper workspace';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function setConnectionUi(connected, enterWorkspace) {
+      pepperConnected = connected;
+      const pill = document.getElementById('globalConnectionStatus');
+      const text = document.getElementById('globalConnectionText');
+      pill.classList.toggle('offline', !connected);
+      text.textContent = connected
+        ? 'Pepper · ' + ipInput.value.trim()
+        : 'Pepper offline';
+      if (connected && enterWorkspace) {
+        document.getElementById('connectGate').classList.add('hidden');
+        document.getElementById('appShell').classList.remove('locked');
+        showView('conversation');
+      }
+      updateConversationControls();
+    }
+
+    function enterInterfacePreview() {
+      pepperConnected = false;
+      document.getElementById('connectGate').classList.add('hidden');
+      document.getElementById('appShell').classList.remove('locked');
+      document.getElementById('globalConnectionStatus').classList.add('offline');
+      document.getElementById('globalConnectionText').textContent = 'UI preview · Pepper offline';
+      document.querySelector('.ghost-button').textContent = 'Exit preview';
+      showView('conversation');
+      updateConversationControls();
+    }
+
+    async function disconnectUi() {
+      if (continuousConversationActive) await stopContinuousConversation();
+      stopVision();
+      if (modePollTimer) clearInterval(modePollTimer);
+      modePollTimer = null;
+      setConnectionUi(false, false);
+      document.getElementById('appShell').classList.add('locked');
+      document.getElementById('connectGate').classList.remove('hidden');
+      connStatus.textContent = 'Disconnected. Ready to reconnect when you are.';
+      if (interfacePreview) window.history.replaceState({}, '', window.location.pathname);
+    }
 
     function log(msg) { logs.textContent += "\n" + new Date().toLocaleTimeString() + "  " + msg; logs.scrollTop = logs.scrollHeight; }
 
@@ -372,25 +724,526 @@
       portInput.value = savedPort();
     }
 
-    // (duplicate name in your file; leaving your later postJSON intact)
-    async function postJSON(url, data) {
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-      const json = await res.json();
-      if (!json.ok) { throw new Error(json.error || 'Request failed'); }
-      return json;
-    }
-
     async function testConnect() {
+      if (pepperConnectActive) return;
       const ip = ipInput.value.trim();
       const port = (portInput.value.trim() || '9559');
       if (!ip) { connStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
-      connStatus.textContent = 'Connecting…';
+      pepperConnectActive = true;
+      document.getElementById('btnTestConnect').disabled = true;
+      connStatus.innerHTML = '<span class="listening">Reaching Pepper…</span>';
       try {
-        await postJSON('/api/connect-test', { ip, port: Number(port) });
+        await postJSON('/api/connect-test', { ip, port: Number(port) }, 18000);
+        saveIp();
+        setConnectionUi(true, true);
         connStatus.innerHTML = '<span class="ok">Connected. NAOqi services available.</span>';
         log('Connected to ' + ip + ':' + port);
-      } catch (e) { connStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Connect error: ' + e.message); }
+        startModePolling();
+      } catch (e) {
+        setConnectionUi(false, false);
+        if (modePollTimer) clearInterval(modePollTimer);
+        modePollTimer = null;
+        connStatus.innerHTML = '<span class="err">Could not reach Pepper. ' + e.message + '</span>';
+        log('Connect error: ' + e.message);
+        updateConversationControls();
+      } finally {
+        pepperConnectActive = false;
+        document.getElementById('btnTestConnect').disabled = false;
+      }
     }
+
+    function cameraFrameUrl() {
+      const params = new URLSearchParams({
+        ip: ipInput.value.trim(),
+        port: (portInput.value.trim() || '9559'),
+        camera: document.getElementById('cameraSelect').value,
+        resolution: document.getElementById('cameraResolution').value,
+        fps: document.getElementById('cameraFps').value,
+        t: String(Date.now())
+      });
+      return '/api/camera-frame?' + params.toString();
+    }
+
+    function setVisionControls(running) {
+      document.getElementById('btnVisionStart').disabled = running;
+      document.getElementById('btnVisionStop').disabled = !running;
+      cameraLiveBadge.style.display = running ? 'inline-block' : 'none';
+    }
+
+    async function fetchCameraBlob() {
+      const response = await fetch(cameraFrameUrl(), { cache: 'no-store' });
+      if (!response.ok) {
+        let message = 'Camera request failed (HTTP ' + response.status + ')';
+        try {
+          const data = await response.json();
+          if (data && data.error) message = data.error;
+        } catch (e) { /* keep the HTTP error */ }
+        throw new Error(message);
+      }
+      return response.blob();
+    }
+
+    async function refreshCameraFrame() {
+      if (!cameraRunning || cameraRequestActive) return;
+      cameraRequestActive = true;
+      try {
+        const blob = await fetchCameraBlob();
+        const nextUrl = URL.createObjectURL(blob);
+        const previousUrl = cameraObjectUrl;
+        cameraObjectUrl = nextUrl;
+        cameraLastBlob = blob;
+        cameraImage.onload = function () {
+          if (previousUrl) URL.revokeObjectURL(previousUrl);
+        };
+        cameraImage.src = nextUrl;
+        cameraImage.style.display = 'block';
+        cameraPlaceholder.style.display = 'none';
+        const cameraLabel = document.getElementById('cameraSelect').selectedOptions[0].textContent;
+        const resolution = document.getElementById('cameraResolution').value;
+        cameraStatus.innerHTML = '<span class="ok">Live: ' + cameraLabel + ' at ' + resolution + '.</span>';
+      } catch (e) {
+        cameraRunning = false;
+        setVisionControls(false);
+        cameraStatus.innerHTML = '<span class="err">' + e.message + '</span>';
+        cameraPlaceholder.textContent = 'Camera unavailable';
+        cameraPlaceholder.style.display = 'block';
+        cameraImage.style.display = 'none';
+        log('Camera error: ' + e.message);
+      } finally {
+        cameraRequestActive = false;
+        if (cameraRunning) {
+          const fps = Number(document.getElementById('cameraFps').value) || 2;
+          cameraTimer = setTimeout(refreshCameraFrame, Math.max(200, Math.round(1000 / fps)));
+        }
+      }
+    }
+
+    function startVision() {
+      const ip = ipInput.value.trim();
+      if (!ip) {
+        cameraStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>';
+        return;
+      }
+      if (cameraTimer) clearTimeout(cameraTimer);
+      cameraRunning = true;
+      setVisionControls(true);
+      cameraStatus.textContent = 'Starting camera…';
+      cameraPlaceholder.textContent = 'Waiting for Pepper camera…';
+      cameraPlaceholder.style.display = 'block';
+      log('Started Pepper Vision (' + document.getElementById('cameraSelect').value + ' camera)');
+      refreshCameraFrame();
+    }
+
+    function stopVision() {
+      cameraRunning = false;
+      if (cameraTimer) clearTimeout(cameraTimer);
+      cameraTimer = null;
+      setVisionControls(false);
+      cameraImage.removeAttribute('src');
+      cameraImage.style.display = 'none';
+      cameraPlaceholder.textContent = 'Camera preview is off';
+      cameraPlaceholder.style.display = 'block';
+      cameraStatus.textContent = 'Camera preview is off.';
+      cameraLastBlob = null;
+      if (cameraObjectUrl) URL.revokeObjectURL(cameraObjectUrl);
+      cameraObjectUrl = null;
+      log('Stopped Pepper Vision');
+    }
+
+    async function saveVisionSnapshot() {
+      const ip = ipInput.value.trim();
+      if (!ip) {
+        cameraStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>';
+        return;
+      }
+      cameraStatus.textContent = 'Capturing snapshot…';
+      try {
+        const blob = cameraLastBlob || await fetchCameraBlob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'pepper-' + document.getElementById('cameraSelect').value + '-' + new Date().toISOString().replace(/[:.]/g, '-') + '.png';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        cameraStatus.innerHTML = '<span class="ok">Snapshot saved.</span>';
+        log('Saved Pepper camera snapshot');
+      } catch (e) {
+        cameraStatus.innerHTML = '<span class="err">' + e.message + '</span>';
+        log('Snapshot error: ' + e.message);
+      }
+    }
+
+    ['cameraSelect', 'cameraResolution', 'cameraFps'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', function () {
+        cameraLastBlob = null;
+        if (cameraRunning) {
+          if (cameraTimer) clearTimeout(cameraTimer);
+          cameraTimer = null;
+          refreshCameraFrame();
+        }
+      });
+    });
+
+    window.addEventListener('beforeunload', function () {
+      cameraRunning = false;
+      if (cameraTimer) clearTimeout(cameraTimer);
+      if (cameraObjectUrl) URL.revokeObjectURL(cameraObjectUrl);
+    });
+
+    // ----- Local Llama + speech conversation -----
+    const BrowserSpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const heardSpeech = document.getElementById('heardSpeech');
+    const interimSpeech = document.getElementById('interimSpeech');
+    const speechStatus = document.getElementById('speechStatus');
+    const localAiStatus = document.getElementById('localAiStatus');
+    const localAiModel = document.getElementById('localAiModel');
+    const localSpeechStatus = document.getElementById('localSpeechStatus');
+    const localSpeechSetup = document.getElementById('localSpeechSetup');
+    const conversation = document.getElementById('conversation');
+    const ollamaDownload = document.getElementById('ollamaDownload');
+    let speechRecognition = null;
+    let localAiReady = false;
+    let localSpeechReady = false;
+    let llamaRequestActive = false;
+    let pepperListenActive = false;
+    let continuousConversationActive = false;
+    let conversationMessages = [];
+
+    function updateConversationControls() {
+      const hasText = heardSpeech.value.trim().length > 0;
+      document.getElementById('btnSendToLlama').disabled = !localAiReady || !hasText || llamaRequestActive;
+      const conversationReady = localSpeechReady && localAiReady && pepperConnected;
+      document.getElementById('btnPepperListen').disabled = !localSpeechReady || !pepperConnected || llamaRequestActive || pepperListenActive || continuousConversationActive;
+      document.getElementById('btnConversationStart').disabled = !conversationReady || llamaRequestActive || pepperListenActive || continuousConversationActive;
+      document.getElementById('btnConversationStop').disabled = !continuousConversationActive;
+    }
+
+    function addConversationMessage(role, content) {
+      const empty = document.getElementById('conversationEmpty');
+      if (empty) empty.remove();
+      const message = document.createElement('div');
+      message.className = 'message ' + role;
+      message.textContent = content;
+      conversation.appendChild(message);
+      conversation.scrollTop = conversation.scrollHeight;
+    }
+
+    function clearConversation() {
+      conversationMessages = [];
+      conversation.innerHTML = '<div id="conversationEmpty" class="muted">Your conversation will appear here.</div>';
+      heardSpeech.value = '';
+      interimSpeech.textContent = '';
+      speechStatus.textContent = 'Conversation cleared. Microphone is idle.';
+      updateConversationControls();
+    }
+
+    async function checkLocalAi() {
+      localAiReady = false;
+      localAiModel.disabled = true;
+      document.getElementById('btnCheckLocalAi').disabled = true;
+      localAiStatus.textContent = 'Searching this computer for Ollama and local models…';
+      updateConversationControls();
+      try {
+        const response = await fetch('/api/local-ai/status', { cache: 'no-store' });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || 'Local AI check failed');
+
+        localAiModel.innerHTML = '';
+        if (data.available && data.models && data.models.length) {
+          data.models.forEach(function (name) {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            option.selected = name === data.preferred_model;
+            localAiModel.appendChild(option);
+          });
+          localAiReady = true;
+          localAiModel.disabled = false;
+          ollamaDownload.style.display = 'none';
+          localAiStatus.innerHTML = '<span class="ok">Ollama ' + data.version + ' detected locally • ' + data.models.length + ' model(s) ready.</span>';
+          log('Local AI ready: ' + data.preferred_model);
+        } else if (data.available) {
+          localAiModel.innerHTML = '<option>No downloaded models</option>';
+          localAiStatus.innerHTML = '<span class="err">Ollama is running, but no model is downloaded. Run: ollama pull llama3.1:8b</span>';
+          ollamaDownload.style.display = 'none';
+        } else {
+          localAiModel.innerHTML = '<option>Ollama not detected</option>';
+          localAiStatus.innerHTML = '<span class="err">Ollama is not running. If it is installed, run: ' + data.start_command + '. Otherwise use the download link.</span>';
+          ollamaDownload.href = data.download_url || 'https://ollama.com/download';
+          ollamaDownload.style.display = 'inline-block';
+        }
+      } catch (e) {
+        localAiModel.innerHTML = '<option>Local AI unavailable</option>';
+        localAiStatus.innerHTML = '<span class="err">' + e.message + '</span>';
+        ollamaDownload.style.display = 'inline-block';
+        log('Local AI detection error: ' + e.message);
+      } finally {
+        document.getElementById('btnCheckLocalAi').disabled = false;
+        updateConversationControls();
+      }
+    }
+
+    async function checkLocalSpeech() {
+      localSpeechReady = false;
+      document.getElementById('btnCheckLocalSpeech').disabled = true;
+      localSpeechStatus.textContent = 'Checking for local MLX Whisper…';
+      updateConversationControls();
+      try {
+        const response = await fetch('/api/local-speech/status', { cache: 'no-store' });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || 'Speech recognition check failed');
+        if (data.available) {
+          localSpeechReady = true;
+          localSpeechSetup.style.display = 'none';
+          localSpeechStatus.innerHTML = '<span class="ok">' + data.provider + ' is ready locally • ' + data.model + ' • language ' + data.language + '.</span>';
+          log('Local speech recognition ready: ' + data.model);
+        } else {
+          localSpeechSetup.href = data.setup_url || 'https://pypi.org/project/mlx-whisper/';
+          localSpeechSetup.style.display = 'inline-block';
+          localSpeechStatus.innerHTML = '<span class="err">Local speech recognition is not running. Run ' + data.setup_command + ' once, then ' + data.start_command + '.</span>';
+        }
+      } catch (e) {
+        localSpeechSetup.style.display = 'inline-block';
+        localSpeechStatus.innerHTML = '<span class="err">Speech recognition check failed: ' + e.message + '</span>';
+        log('Local speech recognition error: ' + e.message);
+      } finally {
+        document.getElementById('btnCheckLocalSpeech').disabled = false;
+        updateConversationControls();
+      }
+    }
+
+    async function listenThroughPepper(options) {
+      options = options || {};
+      const continuousTurn = Boolean(options.continuous);
+      if (!localSpeechReady || !pepperConnected || pepperListenActive) return;
+      const ip = ipInput.value.trim();
+      const port = Number(portInput.value.trim() || '9559');
+      const duration = Number(document.getElementById('pepperListenDuration').value || '6');
+      pepperListenActive = true;
+      heardSpeech.value = '';
+      interimSpeech.textContent = '';
+      speechStatus.innerHTML = '<span class="listening">Pepper is listening… speak now. Recording stops after 3 seconds of silence.</span>';
+      localSpeechStatus.textContent = 'Listening continuously for one utterance (maximum ' + duration + ' seconds).';
+      updateConversationControls();
+
+      try {
+        const result = await postJSON('/api/pepper-listen', {
+          ip: ip,
+          port: port,
+          duration: duration,
+          continuous: continuousTurn
+        }, duration * 1000 + 190000);
+        if (result.canceled) return false;
+        heardSpeech.value = result.transcript || '';
+        if (heardSpeech.value.trim()) {
+          speechStatus.textContent = 'Pepper heard: “' + heardSpeech.value + '”';
+          localSpeechStatus.innerHTML = '<span class="ok">Listened for ' + result.capture_seconds + ' seconds, then transcribed locally with ' + result.model + ' in ' + result.transcription_seconds + ' seconds.</span>';
+          log('Pepper microphone transcript captured');
+        } else {
+          speechStatus.textContent = continuousTurn && continuousConversationActive
+            ? 'No speech detected. Pepper is continuing to listen…'
+            : 'Pepper did not detect any speech. Try again and speak toward its head.';
+          localSpeechStatus.innerHTML = '<span class="ok">Audio was captured and processed locally, but no words were detected.</span>';
+        }
+      } catch (e) {
+        speechStatus.innerHTML = '<span class="err">Pepper microphone error: ' + e.message + '</span>';
+        localSpeechStatus.innerHTML = '<span class="err">Could not complete local transcription.</span>';
+        log('Pepper microphone error: ' + e.message);
+        return false;
+      } finally {
+        pepperListenActive = false;
+        updateConversationControls();
+      }
+
+      const shouldSendTurn = continuousTurn
+        ? continuousConversationActive
+        : document.getElementById('autoSendSpeech').checked;
+      if (heardSpeech.value.trim() && localAiReady && shouldSendTurn) {
+        const replyCompleted = await sendToLlama(continuousTurn);
+        if (!replyCompleted) return false;
+      }
+      return true;
+    }
+
+    async function startContinuousConversation() {
+      if (continuousConversationActive || !localSpeechReady || !localAiReady || !pepperConnected) return;
+      continuousConversationActive = true;
+      document.getElementById('pepperSpeaks').checked = true;
+      speechStatus.innerHTML = '<span class="listening">Conversation started. Pepper is waiting for you to speak…</span>';
+      log('Started continuous Pepper conversation');
+      updateConversationControls();
+
+      while (continuousConversationActive) {
+        const turnCompleted = await listenThroughPepper({ continuous: true });
+        if (!turnCompleted || !continuousConversationActive) break;
+        await new Promise(function (resolve) { setTimeout(resolve, 350); });
+      }
+
+      if (continuousConversationActive) {
+        continuousConversationActive = false;
+        speechStatus.innerHTML = '<span class="err">Conversation stopped because a turn could not be completed.</span>';
+      }
+      updateConversationControls();
+    }
+
+    async function stopContinuousConversation() {
+      if (!continuousConversationActive) return;
+      continuousConversationActive = false;
+      updateConversationControls();
+      speechStatus.textContent = 'Stopping Pepper conversation…';
+      const ip = ipInput.value.trim();
+      const port = Number(portInput.value.trim() || '9559');
+      try {
+        await postJSON('/api/conversation-stop', { ip: ip, port: port }, 10000);
+        speechStatus.textContent = 'Conversation stopped. Pepper is no longer listening or speaking.';
+        localSpeechStatus.textContent = 'Continuous conversation is off.';
+        log('Stopped continuous Pepper conversation');
+      } catch (e) {
+        speechStatus.innerHTML = '<span class="err">Stop request failed: ' + e.message + '</span>';
+      }
+    }
+
+    function createSpeechRecognition() {
+      if (!BrowserSpeechRecognition) return null;
+      const recognition = new BrowserSpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || 'en-US';
+
+      recognition.onstart = function () {
+        document.getElementById('btnListenStart').disabled = true;
+        document.getElementById('btnListenStop').disabled = false;
+        speechStatus.innerHTML = '<span class="listening">Listening… speak now.</span>';
+        interimSpeech.textContent = '';
+      };
+      recognition.onresult = function (event) {
+        let interim = '';
+        let finalText = '';
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const text = event.results[i][0].transcript;
+          if (event.results[i].isFinal) finalText += text;
+          else interim += text;
+        }
+        if (finalText.trim()) {
+          heardSpeech.value = (heardSpeech.value + ' ' + finalText).trim();
+          speechStatus.innerHTML = '<span class="ok">Speech captured. Review the transcript, then send it to Llama.</span>';
+        }
+        interimSpeech.textContent = interim ? 'Hearing: ' + interim : '';
+        updateConversationControls();
+      };
+      recognition.onerror = function (event) {
+        speechStatus.innerHTML = '<span class="err">Microphone error: ' + event.error + '</span>';
+        log('Speech recognition error: ' + event.error);
+      };
+      recognition.onend = function () {
+        document.getElementById('btnListenStart').disabled = false;
+        document.getElementById('btnListenStop').disabled = true;
+        interimSpeech.textContent = '';
+        updateConversationControls();
+        if (heardSpeech.value.trim() && document.getElementById('autoSendSpeech').checked && localAiReady) {
+          sendToLlama();
+        }
+      };
+      return recognition;
+    }
+
+    function startListening() {
+      if (!BrowserSpeechRecognition) {
+        speechStatus.innerHTML = '<span class="err">Speech recognition is not available in this browser. Type your message instead.</span>';
+        return;
+      }
+      heardSpeech.value = '';
+      updateConversationControls();
+      speechRecognition = createSpeechRecognition();
+      try {
+        speechRecognition.start();
+      } catch (e) {
+        speechStatus.innerHTML = '<span class="err">Could not start the microphone: ' + e.message + '</span>';
+      }
+    }
+
+    function stopListening() {
+      if (speechRecognition) speechRecognition.stop();
+    }
+
+    async function sendToLlama(conversationTurn) {
+      const prompt = heardSpeech.value.trim();
+      if (!prompt || !localAiReady || llamaRequestActive) return false;
+      let replyCompleted = false;
+
+      const previousMessages = conversationMessages.slice(-12);
+      conversationMessages.push({ role: 'user', content: prompt });
+      addConversationMessage('user', prompt);
+      llamaRequestActive = true;
+      speechStatus.textContent = 'Llama is thinking locally…';
+      updateConversationControls();
+
+      try {
+        const result = await postJSON('/api/local-ai/chat', {
+          model: localAiModel.value,
+          prompt: prompt,
+          messages: previousMessages
+        }, 130000);
+        conversationMessages.push({ role: 'assistant', content: result.reply });
+        addConversationMessage('assistant', result.reply);
+        speechStatus.innerHTML = '<span class="ok">Local Llama replied.</span>';
+        log('Local Llama replied using ' + result.model);
+
+        if (conversationTurn && !continuousConversationActive) {
+          speechStatus.textContent = 'Conversation stopped before Pepper spoke the pending reply.';
+        } else if (document.getElementById('pepperSpeaks').checked && pepperConnected) {
+          const ip = ipInput.value.trim();
+          const port = (portInput.value.trim() || '9559');
+          if (!ip) {
+            speechStatus.innerHTML = '<span class="ok">Llama replied.</span> Enter Pepper IP to speak it aloud.';
+          } else {
+            speechStatus.textContent = 'Llama replied. Sending the reply to Pepper…';
+            try {
+              await postJSON('/api/pepper-speak', { ip: ip, port: Number(port), text: result.reply });
+              speechStatus.innerHTML = '<span class="ok">Pepper finished speaking the reply.</span>';
+              log('Pepper spoke the Llama reply');
+            } catch (speechError) {
+              speechStatus.innerHTML = '<span class="ok">Llama replied.</span> <span class="err">Pepper could not speak: ' + speechError.message + '</span>';
+              log('Pepper speech error: ' + speechError.message);
+            }
+          }
+        } else if (document.getElementById('pepperSpeaks').checked) {
+          speechStatus.innerHTML = '<span class="ok">Local Llama replied.</span> Test the Pepper connection to enable robot speech.';
+        }
+        replyCompleted = true;
+      } catch (e) {
+        speechStatus.innerHTML = '<span class="err">Llama error: ' + e.message + '</span>';
+        log('Local Llama error: ' + e.message);
+      } finally {
+        llamaRequestActive = false;
+        updateConversationControls();
+      }
+      return replyCompleted;
+    }
+
+    heardSpeech.addEventListener('input', updateConversationControls);
+    heardSpeech.addEventListener('keydown', function (event) {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') sendToLlama();
+    });
+    [ipInput, portInput].forEach(function (input) {
+      input.addEventListener('input', function () {
+        setConnectionUi(false, false);
+      });
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') testConnect();
+      });
+    });
+
+    window.addEventListener('load', function () {
+      checkLocalAi();
+      checkLocalSpeech();
+      if (!BrowserSpeechRecognition) {
+        document.getElementById('btnListenStart').disabled = true;
+        speechStatus.textContent = 'This browser cannot transcribe microphone speech; typing still works.';
+      }
+    });
 
     async function playAudio() {
       const ip = ipInput.value.trim();
@@ -416,50 +1269,15 @@
       } catch (e) { audioStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Stop audio error: ' + e.message); }
     }
 
-    // Track currently running animations
-    const activeAnimations = {};
-
-    async function toggleAnimation(anim, btn) {
-      const ip = ipInput.value.trim();
-      const port = (portInput.value.trim() || '9559');
-      if (!ip) { animStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
-
-      if (activeAnimations[anim]) {
-        // Stop it
-        try {
-          await postJSON('/api/stop-animations', { ip, port: Number(port) });
-          animStatus.innerHTML = '<span class="ok">Stopped animation ' + anim + '.</span>';
-          log('Stopped animation: ' + anim);
-          activeAnimations[anim] = false;
-          btn.disabled = false;
-        } catch (e) { animStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Stop animation error: ' + e.message); }
-      } else {
-        // Run it (synchronous)
-        try {
-          await postJSON('/api/run-animation', { ip, port: Number(port), animation: anim, mode: 'sync' });
-          animStatus.innerHTML = '<span class="ok">Animation complete: ' + anim + '.</span>';
-          log('Animation finished: ' + anim);
-        } catch (e) { animStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Animation error: ' + e.message); }
-        activeAnimations[anim] = false;
-        btn.disabled = false;
-      }
-    }
-
     window.addEventListener('load', async () => {
       loadIp();
-      if (!savedIp()) {
-        const ip = window.prompt('Enter Pepper IP (e.g., 192.168.1.8)');
-        const port = window.prompt('Enter NAOqi port', '9559');
-        if (ip) { ipInput.value = ip.trim(); }
-        if (port) { portInput.value = (port.trim() || '9559'); }
-        saveIp();
-        if (ip) { await testConnect(); }
-      } else {
-        if (!localStorage.getItem('pepperPort')) {
-          portInput.value = '9559';
-          localStorage.setItem('pepperPort', '9559');
-        }
+      if (!localStorage.getItem('pepperPort')) {
+        portInput.value = '9559';
+        localStorage.setItem('pepperPort', '9559');
       }
+      setConnectionUi(false, false);
+      showView('conversation');
+      if (interfacePreview) enterInterfacePreview();
     });
     // Animation buttons logic
     function getAnimButtons() { return Array.prototype.slice.call(document.querySelectorAll('.anim-btn')); }
@@ -499,12 +1317,18 @@
     async function runCustomAnimation() {
       const anim = document.getElementById('animCustom').value.trim();
       if (!anim) { animStatus.innerHTML = '<span class="err">Enter a custom animation path.</span>'; return; }
-      // create a temporary button-like tracker so user can stop
-      const tempBtn = document.createElement('button');
-      tempBtn.className = 'anim-btn running';
-      tempBtn.dataset.anim = anim;
-      document.getElementById('animButtons').appendChild(tempBtn);
-      runAnimationAndTrack(anim, tempBtn);
+      runAnimationAndTrack(anim, null);
+    }
+
+    async function stopAnimations() {
+      const ip = ipInput.value.trim();
+      const port = Number(portInput.value.trim() || '9559');
+      if (!ip) { animStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      try {
+        await postJSON('/api/stop-animation', { ip, port });
+        getAnimButtons().forEach(function (button) { button.classList.remove('running'); });
+        animStatus.innerHTML = '<span class="ok">Animations stopped.</span>';
+      } catch (e) { animStatus.innerHTML = '<span class="err">' + e.message + '</span>'; }
     }
     async function setSleepMode(sleep) {
       const ip = ipInput.value.trim();
@@ -518,10 +1342,21 @@
       } catch (e) { modeStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Sleep/Wake error: ' + e.message); }
     }
 
+    async function setAnimationMode(enabled) {
+      const ip = ipInput.value.trim();
+      const port = (portInput.value.trim() || '9559');
+      if (!ip) { modeStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      modeStatus.textContent = enabled ? 'Enabling animation mode…' : 'Disabling animation mode…';
+      try {
+        await postJSON('/api/animation-mode', { ip, port: Number(port), enabled: !!enabled });
+        modeStatus.innerHTML = '<span class="ok">Animation mode ' + (enabled ? 'enabled.' : 'disabled.') + '</span>';
+        log('Animation mode ' + (enabled ? 'enabled' : 'disabled'));
+      } catch (e) { modeStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Animation mode error: ' + e.message); }
+    }
+
     // ----- Scripts UI -----
     let scriptsPollTimer = null;
-    let currentJobId = null; // active script job id
-
+    let currentJobId = null;
 
     async function fetchScripts() {
       const box = document.getElementById('scriptsList');
@@ -544,32 +1379,27 @@
       } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
     }
 
-
     async function runScript(name, btn) {
       const ip = ipInput.value.trim();
       const port = (portInput.value.trim() || '9559');
-      const lang = document.getElementById('scriptsLang').value || 'English';
-      const nameParam = (document.getElementById('scriptsName').value || '').trim();
       const status = document.getElementById('scriptsStatus');
       const out = document.getElementById('scriptsOutput');
-      const stopBtn = document.getElementById('btnStopScript');
       if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
       btn.disabled = true;
-      stopBtn.disabled = true;
-      status.textContent = 'Running ' + name + '… (Language: ' + lang + (nameParam ? ', Name: ' + nameParam : '') + ')';
+      status.textContent = 'Running ' + name + '…';
       out.textContent = '';
       try {
-        const res = await postJSON('/api/run-script', { ip, port: Number(port), script: name, language: lang, name_param: nameParam });
+        const language = document.getElementById('scriptsLang').value || 'English';
+        const nameParam = document.getElementById('scriptsName').value.trim();
+        const res = await postJSON('/api/run-script', { ip, port: Number(port), script: name, language, name_param: nameParam });
         const job = res.job_id;
         currentJobId = job;
-        stopBtn.disabled = false;
+        document.getElementById('btnStopScript').disabled = false;
         await pollScript(job, status, out, btn);
-      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; btn.disabled = false; currentJobId = null; stopBtn.disabled = true; }
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; btn.disabled = false; }
     }
 
-
     async function pollScript(job_id, statusEl, outEl, btn) {
-      const stopBtn = document.getElementById('btnStopScript');
       async function once() {
         try {
           const res = await fetch('/api/script-status?job_id=' + encodeURIComponent(job_id));
@@ -580,14 +1410,14 @@
             statusEl.innerHTML = data.rc === 0 ? '<span class="ok">Script finished.</span>' : '<span class="err">Script exited with code ' + data.rc + '</span>';
             btn.disabled = false;
             currentJobId = null;
-            stopBtn.disabled = true;
+            document.getElementById('btnStopScript').disabled = true;
             return true;
           }
         } catch (e) {
           statusEl.innerHTML = '<span class="err">' + e.message + '</span>';
           btn.disabled = false;
           currentJobId = null;
-          stopBtn.disabled = true;
+          document.getElementById('btnStopScript').disabled = true;
           return true;
         }
         return false;
@@ -601,96 +1431,60 @@
     // Fetch scripts on load
     window.addEventListener('load', function () { fetchScripts(); });
 
-    // ----- Behaviors UI -----
+    async function stopScript() {
+      if (!currentJobId) return;
+      const status = document.getElementById('scriptsStatus');
+      try {
+        const result = await postJSON('/api/stop-script', { job_id: currentJobId });
+        status.textContent = result.stopped ? 'Stop signal sent.' : 'Script already finished.';
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
+
     async function fetchBehaviors() {
       const box = document.getElementById('behaviorsList');
       const status = document.getElementById('behaviorsStatus');
       const ip = ipInput.value.trim();
-      const port = (portInput.value.trim() || '9559');
+      if (!ip) { status.innerHTML = '<span class="err">Connect to Pepper first.</span>'; return; }
       box.innerHTML = '';
-      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
-      status.textContent = 'Loading behaviors…';
       try {
-        const data = await postJSON('/api/list-behaviors', { ip, port: Number(port) });
-        if (!data.behaviors || !data.behaviors.length) { status.textContent = 'No behaviors installed on Pepper.'; return; }
-        const running = new Set(data.running || []);
-        status.textContent = 'Found ' + data.behaviors.length + ' behavior(s).';
-        data.behaviors.forEach(name => {
-          const btn = document.createElement('button');
-          btn.className = 'anim-btn';
-          btn.textContent = name + (running.has(name) ? '  (running)' : '');
-          btn.addEventListener('click', () => runBehavior(name));
-          box.appendChild(btn);
+        const data = await postJSON('/api/list-behaviors', { ip, port: Number(portInput.value || 9559) });
+        (data.behaviors || []).forEach(function (name) {
+          const button = document.createElement('button');
+          button.className = 'anim-btn';
+          button.textContent = name;
+          button.onclick = function () { runBehavior(name); };
+          box.appendChild(button);
         });
+        status.textContent = (data.behaviors || []).length + ' behavior(s) available.';
       } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
     }
 
     async function runBehavior(name) {
-      const ip = ipInput.value.trim();
-      const port = (portInput.value.trim() || '9559');
       const status = document.getElementById('behaviorsStatus');
-      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
-      status.textContent = 'Starting ' + name + '…';
       try {
-        await postJSON('/api/run-behavior', { ip, port: Number(port), behavior: name });
+        await postJSON('/api/run-behavior', { ip: ipInput.value.trim(), port: Number(portInput.value || 9559), behavior: name });
         status.innerHTML = '<span class="ok">Started ' + name + '.</span>';
       } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
     }
 
     async function stopAllBehaviors() {
-      const ip = ipInput.value.trim();
-      const port = (portInput.value.trim() || '9559');
       const status = document.getElementById('behaviorsStatus');
-      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
       try {
-        await postJSON('/api/stop-behavior', { ip, port: Number(port) });
-        status.innerHTML = '<span class="ok">Stop sent to all behaviors.</span>';
+        await postJSON('/api/stop-behavior', { ip: ipInput.value.trim(), port: Number(portInput.value || 9559) });
+        status.innerHTML = '<span class="ok">Behaviors stopped.</span>';
       } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
     }
-
-    async function stopScript() {
-      const status = document.getElementById('scriptsStatus');
-      const stopBtn = document.getElementById('btnStopScript');
-      if (!currentJobId) { status.innerHTML = '<span class="err">No running script.</span>'; return; }
-      stopBtn.disabled = true;
-      status.textContent = 'Stopping script…';
-      try {
-        const res = await postJSON('/api/stop-script', { job_id: currentJobId });
-        if (res.stopped) { status.innerHTML = '<span class="ok">Stop signal sent.</span>'; }
-        else { status.innerHTML = '<span class="muted">Script was not running.</span>'; }
-      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
-    }
-
-    // ----- Periodic mode status poll -----
-    async function pollModes() {
-      const ip = ipInput.value.trim();
-      const port = (portInput.value.trim() || '9559');
-      const btnSleepOn = document.getElementById('btnSleepOn');
-      const btnSleepOff = document.getElementById('btnSleepOff');
-      if (!ip) return;
-      try {
-        const res = await fetch('/api/mode-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip, port: Number(port) }) });
-        const data = await res.json();
-        if (data.ok) {
-          // Sleep mode
-          if (data.sleeping) {
-            btnSleepOn.disabled = true;
-            btnSleepOff.disabled = false;
-          } else {
-            btnSleepOn.disabled = false;
-            btnSleepOff.disabled = true;
-          }
-        }
-      } catch (e) { /* ignore polling errors */ }
-    }
-    setInterval(pollModes, 5000);
 
     // ---- Mode polling ----
+    let modePollTimer = null;
+    let modePollActive = false;
 
     function applyModeUi(state) {
       const sleepOn = document.getElementById('btnSleepOn');
       const sleepOff = document.getElementById('btnSleepOff');
-      if (!sleepOn || !sleepOff) return;
+      const animOn = document.getElementById('btnAnimOn');
+      const animOff = document.getElementById('btnAnimOff');
+      if (!sleepOn || !sleepOff || !animOn || !animOff) return;
 
       // Sleep/Wake
       if (state && typeof state.is_awake === 'boolean') {
@@ -699,22 +1493,42 @@
         sleepOff.disabled = state.is_awake ? true : false;    // if awake    -> disable Wake (already awake)
       }
 
+      // Animation mode (Autonomous Life / Awareness)
+      if (state && typeof state.animation_enabled === 'boolean') {
+        animOn.disabled = state.animation_enabled;  // if already enabled, grey ON
+        animOff.disabled = !state.animation_enabled; // if disabled, grey OFF
+      }
+
       // Optional status text
       const modeStatusEl = document.getElementById('modeStatus');
       if (modeStatusEl && state) {
         const life = state.life_state || 'unknown';
-        modeStatusEl.textContent = 'Awake: ' + (state.is_awake ? 'yes' : 'no');
+        modeStatusEl.textContent = 'Awake: ' + (state.is_awake ? 'yes' : 'no') + '  •  Animation mode: ' + (state.animation_enabled ? 'enabled' : 'disabled') + '  •  Life: ' + life;
       }
     }
 
     async function fetchModeStatus() {
       const ip = ipInput.value.trim();
       const port = (portInput.value.trim() || '9559');
-      if (!ip) return;
+      if (!pepperConnected || !ip || modePollActive || pepperListenActive || continuousConversationActive) return;
+      modePollActive = true;
       try {
         const res = await postJSON('/api/mode-status', { ip, port: Number(port) });
         applyModeUi(res);
-      } catch (e) { /* ignore transient errors */ }
+      } catch (e) {
+        setConnectionUi(false, false);
+        if (modePollTimer) clearInterval(modePollTimer);
+        modePollTimer = null;
+      } finally {
+        modePollActive = false;
+      }
+    }
+
+    function startModePolling() {
+      if (modePollTimer) clearInterval(modePollTimer);
+      if (!pepperConnected) return;
+      fetchModeStatus();
+      modePollTimer = setInterval(fetchModeStatus, 10000);
     }
 
     // Patch existing actions to refresh UI after completion
@@ -725,89 +1539,64 @@
         fetchModeStatus();
       };
     }
-
-    // ----- Scene Save/Run helpers (already present in your file; kept as-is) -----
-    async function saveScene() {
-      const name = document.getElementById("sceneName").value.trim();
-      const raw = document.getElementById("sceneSteps").value.trim();
-      const status = document.getElementById("sceneStatus");
-      if (!name || !raw) {
-        status.innerHTML = '<span class="err">Scene name and steps required.</span>';
-        return;
-      }
-
-      try {
-        const steps = JSON.parse(raw);
-        const res = await postJSON("/api/save-scene", {
-          name: name,
-          steps: steps
-        });
-        status.innerHTML = '<span class="ok">Scene saved as ' + res.filename + '</span>';
-      } catch (e) {
-        status.innerHTML = '<span class="err">' + e.message + '</span>';
-      }
+    const _origSetAnimationMode = typeof setAnimationMode === 'function' ? setAnimationMode : null;
+    if (_origSetAnimationMode) {
+      window.setAnimationMode = async function (enabled) {
+        await _origSetAnimationMode(enabled);
+        fetchModeStatus();
+      };
     }
 
-    async function runScene() {
-      const ip = document.getElementById("pepperIp").value.trim();
-      const port = document.getElementById("pepperPort").value.trim() || "9559";
-      const name = document.getElementById("sceneName").value.trim();
-      const status = document.getElementById("sceneStatus");
-
-      if (!ip || !name) {
-        status.innerHTML = '<span class="err">Pepper IP and scene name required.</span>';
-        return;
-      }
-
-      try {
-        const res = await postJSON("/api/run-scene", {
-          ip: ip,
-          port: parseInt(port),
-          name: name
-        });
-        status.innerHTML = '<span class="ok">Scene started.</span>';
-      } catch (e) {
-        status.innerHTML = '<span class="err">' + e.message + '</span>';
-      }
-    }
-
-    // ----- NEW: list + load saved scenes into the editor (small additions only) -----
     async function refreshScenes() {
+      const picker = document.getElementById('scenePicker');
       try {
-        const res = await fetch("/api/list-scenes");
-        const scenes = await res.json();
-        const picker = document.getElementById("scenePicker");
-        picker.innerHTML = '<option value="">-- Select a scene --</option>';
-        scenes.forEach(name => {
-          const opt = document.createElement("option");
-          opt.value = name;
-          opt.textContent = name;
-          picker.appendChild(opt);
+        const response = await fetch('/api/list-scenes');
+        const scenes = await response.json();
+        if (!Array.isArray(scenes)) throw new Error(scenes.error || 'Could not list scenes');
+        picker.innerHTML = '<option value="">Select a scene</option>';
+        scenes.forEach(function (name) {
+          const option = document.createElement('option');
+          option.value = name;
+          option.textContent = name;
+          picker.appendChild(option);
         });
-      } catch (e) {
-        log("Failed to load scenes: " + e.message);
-      }
+      } catch (e) { document.getElementById('sceneStatus').innerHTML = '<span class="err">' + e.message + '</span>'; }
     }
 
     async function loadScene() {
-      const picker = document.getElementById("scenePicker");
-      const name = picker.value;
+      const name = document.getElementById('scenePicker').value;
       if (!name) return;
-
       try {
-        const res = await fetch("/api/get-scene/" + encodeURIComponent(name));
-        const data = await res.json();
-        document.getElementById("sceneName").value = data.script_name || name;
-        document.getElementById("sceneSteps").value = JSON.stringify(data.scene, null, 2);
-        log("Loaded scene: " + name);
-      } catch (e) {
-        log("Error loading scene: " + e.message);
-      }
+        const response = await fetch('/api/get-scene/' + encodeURIComponent(name));
+        const data = await response.json();
+        if (data.ok === false) throw new Error(data.error || 'Could not load scene');
+        document.getElementById('sceneName').value = data.script_name || name;
+        document.getElementById('sceneSteps').value = JSON.stringify(data.scene || [], null, 2);
+      } catch (e) { document.getElementById('sceneStatus').innerHTML = '<span class="err">' + e.message + '</span>'; }
     }
 
-    // Auto-populate saved scenes on load
-    document.addEventListener('DOMContentLoaded', refreshScenes);
+    async function saveScene() {
+      const status = document.getElementById('sceneStatus');
+      try {
+        const name = document.getElementById('sceneName').value.trim();
+        const steps = JSON.parse(document.getElementById('sceneSteps').value || '[]');
+        const result = await postJSON('/api/save-scene', { name, steps });
+        status.innerHTML = '<span class="ok">Saved ' + result.filename + '.</span>';
+        refreshScenes();
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
+
+    async function runScene() {
+      const status = document.getElementById('sceneStatus');
+      try {
+        await postJSON('/api/run-scene', { ip: ipInput.value.trim(), port: Number(portInput.value || 9559), name: document.getElementById('sceneName').value.trim() });
+        status.innerHTML = '<span class="ok">Scene completed.</span>';
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
+
+    window.addEventListener('load', refreshScenes);
+
   </script>
 </body>
-</html>
 
+</html>

@@ -98,6 +98,33 @@ flag yourself, otherwise you get the arm64 image described above:
 docker buildx build --platform linux/amd64 --load -t pepper-portal-python .
 ```
 
+## Local Llama Conversation
+
+The Conversation workspace can run a private speech loop on the local computer:
+
+1. Pepper records through its front microphone until three seconds of silence.
+2. MLX Whisper transcribes the utterance locally and displays what Pepper heard.
+3. A local Ollama model generates Pepper's response.
+4. Pepper speaks the response through `ALTextToSpeech`, then listens again.
+
+Install the project-local speech environment once:
+
+```bash
+./setup_local_speech.sh
+```
+
+Start Ollama and the loopback-only MLX Whisper helper:
+
+```bash
+./run_local_services.sh
+```
+
+The default model is `llama3.1:8b`; download it with `ollama pull llama3.1:8b` if needed. The Whisper model downloads on first use. Open the portal, connect to Pepper, confirm the local services are ready, and select **Start conversation**. The loop continues until **Stop** is selected.
+
+Pepper microphone captures are transferred through NAOqi, overwritten on the robot, and deleted from the computer after transcription. Ask permission before recording other people. Browser microphone recognition remains an optional fallback whose processing depends on the browser.
+
+Use `http://127.0.0.1:8080/?preview=1` to inspect the interface without connecting to a robot.
+
 ## Development Workflow
 
 The `./src` directory is mounted in the container and updates in real-time, allowing you to:

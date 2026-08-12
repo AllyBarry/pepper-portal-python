@@ -45,8 +45,16 @@ ENV LD_LIBRARY_PATH=/naoqi/${sdk_version}
 RUN apt-get update && apt-get install -y python-pip \
     && apt-get clean
 
-RUN python2 -m pip install --upgrade "pip<21" "setuptools<45" "wheel<0.35" \
-    && pip install Flask==1.1.4
+RUN wget -O /tmp/get-pip.py https://bootstrap.pypa.io/pip/2.7/get-pip.py \
+    && python2 /tmp/get-pip.py "pip<21" "setuptools<45" "wheel<0.35" \
+    && python2 -m pip install \
+        "Flask==1.1.4" \
+        "Jinja2==2.11.3" \
+        "MarkupSafe==1.1.1" \
+        "Werkzeug==1.0.1" \
+        "itsdangerous==1.1.0" \
+        "click==7.1.2" \
+    && rm /tmp/get-pip.py
 
 WORKDIR /home/user
 
@@ -57,4 +65,3 @@ EXPOSE 5000
 ENV SCENES_DIR=src/scenes/
 
 CMD ["python2", "src/app/flask_app.py"]
-
