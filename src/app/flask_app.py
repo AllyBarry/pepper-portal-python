@@ -1,131 +1,127 @@
-# -*- coding: utf-8 -*-
 """
 Pepper Control Web App (Flask)
 --------------------------------
-Serves a control UI and JSON endpoints to:
+A tiny Flask app that serves a single web page with buttons to:
+- Prompt for Pepper IP and port on first load, auto-connect
 - Test connection to Pepper
-- Play / stop audio on Pepper
-- Run animations (sync or async)
-- List / run Python scripts from scripts/
-- Save / list / get / run scene JSON files from scenes/
+- Play/stop a WAV file that lives on Pepper
+- Run built-in or custom animations (sync or async)
+- Stop all animations
 
-Prereqs:
-- Python 2.7 with NAOqi Python SDK available (module `qi`).
-- Flask installed (pip install Flask==2.2.* for Py2 compat, or your working version).
+Prereqs
+- Python (the client machine) with the NAOqi Python SDK available (module `qi`).
+  * Ensure your PYTHONPATH points to the NAOqi SDK lib, e.g. (example path):
+    export PYTHONPATH="$PYTHONPATH:/path/to/pynaoqi-python2.7-2.5.7.1-linux64/lib/python2.7/site-packages"
+- Flask: pip install Flask==3.0.0
 
-Run:
-  python flask_app.py
-Open:
-  http://127.0.0.1:5000
+Run
+  python2 app.py
+Then open: http://127.0.0.1:5000
+
+NOTE: This app intentionally has no auth and trusts the provided Pepper IP. If you expose it on a network, add auth and allow-listing.
 """
 
 from __future__ import print_function
 
-import itertools
+import base64
+import io
 import json
 import os
-import io
+import struct
+import sys
 import subprocess
-import threading
+import time
 import traceback
-
+import urllib2
+import zlib
 from functools import wraps
-from flask import Flask, jsonify, render_template, request
+import itertools
+import threading
+
+from flask import Flask, Response, request, jsonify, render_template
 
 try:
     import qi  # NAOqi Python SDK
     _QI_IMPORT_ERROR = None
-except Exception as _e:
+except Exception:
     qi = None
-    # Keep the real reason: the usual cause is an architecture mismatch (pynaoqi
-    # ships x86-64-only .so files), not a missing PYTHONPATH.
     _QI_IMPORT_ERROR = traceback.format_exc()
 
-# Make local modules importable even if CWD differs
-import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# If you have a pepper_core module with PepperController, you can import it.
-# with_services below uses the session directly, so pepper_core is optional for the web API.
-from pepper_core import PepperController, PepperScripter  # optional; used by run-scene
+try:
+    from pepper_core import PepperController, PepperScripter
+except Exception:
+    PepperController = None
+    PepperScripter = None
 
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, "templates"),
+    static_folder=os.path.join(BASE_DIR, "static"),
+)
 
-app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"), static_folder=os.path.join(BASE_DIR, "static"))
-
-# --------------------------
-# Directories (configurable)
-# --------------------------
-SCENES_DIR = os.environ.get("SCENES_DIR") or os.path.join(os.path.dirname(BASE_DIR), "scenes")
 SCRIPTS_DIR = os.environ.get("SCRIPTS_DIR") or os.path.join(BASE_DIR, "scripts")
+SCENES_DIR = os.environ.get("SCENES_DIR") or os.path.join(os.path.dirname(BASE_DIR), "scenes")
 
-for _d in (SCENES_DIR, SCRIPTS_DIR):
-    if not os.path.isdir(_d):
+for _directory in (SCRIPTS_DIR, SCENES_DIR):
+    if not os.path.isdir(_directory):
         try:
-            os.makedirs(_d)
+            os.makedirs(_directory)
         except OSError:
             pass
 
-def _json_write_utf8(path, obj):
-    """
-    Py2-safe JSON writer:
-    - Opens as Unicode text
-    - Forces unicode string (ensure_ascii=False)
-    """
-    txt = json.dumps(obj, ensure_ascii=False, indent=2)
-    try:
-        # On Py2, ensure txt is unicode for io.open(..., encoding=...) write()
-        unicode  # noqa
-        if not isinstance(txt, unicode):
-            txt = txt.decode('utf-8')
-    except NameError:
-        # Py3: already a str
-        pass
-    with io.open(path, "w", encoding="utf-8") as f:
-        f.write(txt)
-
-# --------------------------
-# Safe path helpers
-# --------------------------
-def _safe_name(name):
-    """Allow only 'basename' style names (no slashes, traversal, hidden)."""
-    name = (name or "").strip()
-    if (not name) or ("/" in name) or ("\\" in name) or name.startswith(".") or (".." in name):
-        return None
-    return name
-
-def _safe_join(base_dir, filename):
-    """Join and ensure the result stays inside base_dir."""
-    path = os.path.normpath(os.path.join(base_dir, filename))
-    base_norm = os.path.normpath(base_dir)
-    # Ensure trailing separator to avoid prefix tricks
-    if not path.startswith(base_norm + os.sep) and path != base_norm:
-        raise ValueError("Unsafe path")
-    return path
-
-# --------------------------
-# Session cache & services
-# --------------------------
-_sessions = {}  # key: "ip:port" -> qi.Session()
+# --- Simple in-memory session cache per (ip, port) (optional) ---
+_sessions = {}
 _sessions_lock = threading.Lock()
+_connect_test_lock = threading.Lock()
+_jobs = {}
+_job_counter = itertools.count(1)
+_jobs_lock = threading.Lock()
+_camera_counter = itertools.count(1)
+_camera_lock = threading.Lock()
+_microphone_lock = threading.Lock()
+_microphone_state_lock = threading.Lock()
+_microphone_cancel_events = {}
 
-
-def _session_is_live(sess):
-    """True if sess is connected. Older bindings lack isConnected(); assume live."""
-    if not hasattr(sess, "isConnected"):
-        return True
-    try:
-        return bool(sess.isConnected())
-    except Exception:
-        return False
-
-
-def _close_quietly(sess):
-    try:
-        sess.close()
-    except Exception:
-        pass
+CAMERA_IDS = {"top": 0, "bottom": 1}
+CAMERA_RESOLUTIONS = {
+    "160x120": 0,  # QQVGA
+    "320x240": 1,  # QVGA
+    "640x480": 2,  # VGA
+}
+RGB_COLOR_SPACE = 11
+CAMERA_TIMEOUT_MS = 5000
+OLLAMA_BASE_URL = os.environ.get(
+    "OLLAMA_BASE_URL", "http://host.docker.internal:11434"
+).rstrip("/")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
+OLLAMA_TIMEOUT_SECONDS = int(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "120"))
+LOCAL_STT_BASE_URL = os.environ.get(
+    "LOCAL_STT_BASE_URL", "http://host.docker.internal:8765"
+).rstrip("/")
+LOCAL_STT_TIMEOUT_SECONDS = int(os.environ.get("LOCAL_STT_TIMEOUT_SECONDS", "180"))
+LOCAL_STT_SETUP_URL = "https://pypi.org/project/mlx-whisper/"
+PEPPER_MIC_SAMPLE_RATE = 16000
+PEPPER_MIC_MIN_SECONDS = 2
+PEPPER_MIC_MAX_SECONDS = 45
+PEPPER_MIC_SILENCE_SECONDS = float(os.environ.get("PEPPER_MIC_SILENCE_SECONDS", "3"))
+PEPPER_MIC_ENERGY_THRESHOLD = float(os.environ.get("PEPPER_MIC_ENERGY_THRESHOLD", "1200"))
+PEPPER_MIC_ENERGY_POLL_SECONDS = 0.17
+PEPPER_MIC_ROBOT_PATH = "/data/home/nao/pepper_portal_mic.wav"
+PEPPER_MIC_FILE_KEY = "pepper_portal_mic.wav"
+PEPPER_CONNECT_TIMEOUT_MS = int(os.environ.get("PEPPER_CONNECT_TIMEOUT_MS", "12000"))
+PEPPER_SYSTEM_PROMPT = os.environ.get(
+    "PEPPER_SYSTEM_PROMPT",
+    (
+        "You are Pepper, a friendly social robot speaking aloud to a person. "
+        "Answer naturally in one to three short sentences. Use plain text only, "
+        "with no markdown, lists, stage directions, or emoji."
+    ),
+)
 
 
 def get_session(ip, port=9559):
@@ -136,43 +132,76 @@ def get_session(ip, port=9559):
             % (_QI_IMPORT_ERROR or "")
         )
     key = "%s:%s" % (ip, port)
-
-    # The lock serialises connect() across Flask's worker threads. Without it two
-    # concurrent requests both see a disconnected session and both call connect(),
-    # and the loser gets "Service already in cache: ServiceDirectory".
     with _sessions_lock:
         sess = _sessions.get(key)
-        if sess is not None and _session_is_live(sess):
-            return sess
-
-        # A qi.Session cannot be reconnected: once it has connected, its service
-        # cache keeps ServiceDirectory even after the link drops, so a second
-        # connect() on the same object always fails. Throw it away and start fresh.
         if sess is not None:
-            _close_quietly(sess)
+            try:
+                if not hasattr(sess, "isConnected") or sess.isConnected():
+                    return sess
+            except Exception:
+                pass
+            try:
+                sess.close()
+            except Exception:
+                pass
             _sessions.pop(key, None)
 
+        # A disconnected qi.Session keeps stale service-directory state, so a
+        # reconnect always starts with a fresh object. The future also bounds a
+        # dead lab-network connection instead of holding a Flask worker forever.
         sess = qi.Session()
         try:
-            sess.connect("tcp://{}:{}".format(ip, port))
-        except RuntimeError as e:
-            # Don't cache a half-connected session; the next request starts clean.
-            _close_quietly(sess)
-            raise RuntimeError("Could not connect to Pepper at %s: %s" % (key, e))
+            future = sess.connect("tcp://%s:%s" % (ip, port), _async=True)
+            future.value(PEPPER_CONNECT_TIMEOUT_MS)
+        except Exception as exc:
+            try:
+                future.cancel()
+            except Exception:
+                pass
+            try:
+                sess.close()
+            except Exception:
+                pass
+            raise RuntimeError("Could not connect to Pepper at %s: %s" % (key, exc))
 
         _sessions[key] = sess
         return sess
 
-def clear_session(ip, port):
-    """Explicitly close and delete a session for ip:port."""
+
+def discard_session(ip, port=9559):
+    """Remove a failed qi session so the next attempt starts cleanly."""
     key = "%s:%s" % (ip, port)
     with _sessions_lock:
         sess = _sessions.pop(key, None)
-    if sess:
-        _close_quietly(sess)
-        print("Session cleared for {}:{}".format(ip, port))
-    else:
-        print("No session found for {}:{}".format(ip, port))
+    if sess is not None and hasattr(sess, "close"):
+        try:
+            sess.close()
+        except Exception:
+            pass
+
+
+def _safe_name(name):
+    name = (name or "").strip()
+    if not name or "/" in name or "\\" in name or name.startswith(".") or ".." in name:
+        return None
+    return name
+
+
+def _safe_join(base_dir, filename):
+    path = os.path.normpath(os.path.join(base_dir, filename))
+    base = os.path.normpath(base_dir)
+    if path != base and not path.startswith(base + os.sep):
+        raise ValueError("Unsafe path")
+    return path
+
+
+def _json_write_utf8(path, value):
+    text = json.dumps(value, ensure_ascii=False, indent=2)
+    if not isinstance(text, unicode):
+        text = text.decode("utf-8")
+    with io.open(path, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
 
 def with_services(ip, port=9559):
     """Helper to get ALAudioPlayer and ALAnimationPlayer services for an IP:port."""
@@ -181,27 +210,253 @@ def with_services(ip, port=9559):
     anim = sess.service("ALAnimationPlayer")
     return audio, anim
 
-# --------------------------
-# Async job infra (scripts)
-# --------------------------
-_jobs = {}
-_job_counter = itertools.count(1)
-_jobs_lock = threading.Lock()
+
+def _png_chunk(chunk_type, payload):
+    checksum = zlib.crc32(chunk_type + payload) & 0xffffffff
+    return struct.pack(">I", len(payload)) + chunk_type + payload + struct.pack(">I", checksum)
 
 
-def _run_script_job(job_id, script_path, ip, port, language, name_param=""):
+def rgb_to_png(width, height, rgb_bytes):
+    """Encode packed 8-bit RGB pixels as PNG using only Python's standard library."""
+    row_bytes = width * 3
+    expected = row_bytes * height
+    if len(rgb_bytes) < expected:
+        raise RuntimeError(
+            "Camera returned %s bytes; expected at least %s" % (len(rgb_bytes), expected)
+        )
+
+    scanlines = []
+    for row in range(height):
+        start = row * row_bytes
+        scanlines.append("\x00" + rgb_bytes[start:start + row_bytes])
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        "\x89PNG\r\n\x1a\n"
+        + _png_chunk("IHDR", header)
+        + _png_chunk("IDAT", zlib.compress("".join(scanlines), 3))
+        + _png_chunk("IEND", "")
+    )
+
+
+def capture_camera_png(ip, port, camera_name, resolution_name, fps):
+    camera_id = CAMERA_IDS[camera_name]
+    resolution_id = CAMERA_RESOLUTIONS[resolution_name]
+    session = get_session(ip, port)
+    video = session.service("ALVideoDevice")
+    subscriber = None
+
+    # Pepper exposes a limited number of camera subscriptions. Serialize these
+    # short-lived captures and always unsubscribe, including on timeouts.
+    with _camera_lock:
+        client_name = "pepper_portal_%s_%s" % (os.getpid(), next(_camera_counter))
+        try:
+            subscriber = video.subscribeCamera(
+                client_name, camera_id, resolution_id, RGB_COLOR_SPACE, fps
+            )
+            future = video.getImageRemote(subscriber, _async=True)
+            image = future.value(CAMERA_TIMEOUT_MS)
+            if not image or len(image) < 7:
+                raise RuntimeError("Pepper returned an empty camera frame")
+
+            width = int(image[0])
+            height = int(image[1])
+            pixels = image[6]
+            if isinstance(pixels, bytearray):
+                pixels = str(pixels)
+            elif not isinstance(pixels, str):
+                pixels = bytes(pixels)
+            return rgb_to_png(width, height, pixels)
+        finally:
+            if subscriber:
+                try:
+                    video.unsubscribe(subscriber)
+                except Exception:
+                    pass
+
+def ollama_request(path, payload=None, timeout=10):
+    """Call the Ollama HTTP API running on the Docker host."""
+    url = OLLAMA_BASE_URL + path
+    body = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = urllib2.Request(url, data=body, headers=headers)
+    response = urllib2.urlopen(req, timeout=timeout)
+    raw = response.read()
+    return json.loads(raw.decode("utf-8")) if raw else {}
+
+
+def ollama_models():
+    data = ollama_request("/api/tags", timeout=5)
+    names = []
+    for model in data.get("models", []):
+        name = model.get("name") or model.get("model")
+        if name:
+            names.append(name)
+    return names
+
+
+def preferred_ollama_model(names):
+    if OLLAMA_MODEL in names:
+        return OLLAMA_MODEL
+    llama_names = [name for name in names if name.lower().startswith("llama")]
+    return llama_names[0] if llama_names else (names[0] if names else OLLAMA_MODEL)
+
+
+def local_stt_request(path, payload=None, timeout=10):
+    url = LOCAL_STT_BASE_URL + path
+    body = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib2.Request(url, data=body, headers=headers)
+    response = urllib2.urlopen(req, timeout=timeout)
+    raw = response.read()
+    return json.loads(raw.decode("utf-8")) if raw else {}
+
+
+def capture_pepper_microphone_wav(
+    ip,
+    port,
+    max_duration_seconds,
+    silence_seconds=PEPPER_MIC_SILENCE_SECONDS,
+    wait_for_speech=False,
+):
+    """Record until Pepper hears three seconds of continuous silence."""
+    session = get_session(ip, port)
+    recorder = session.service("ALAudioRecorder")
+    file_manager = session.service("ALFileManager")
+    audio_device = session.service("ALAudioDevice")
+    recording = False
+    wav_data = None
+    started_at = None
+    last_voice_at = None
+    speech_detected = False
+    max_energy = 0.0
+    canceled = False
+    session_key = "%s:%s" % (ip, port)
+    cancel_event = threading.Event()
+
+    with _microphone_state_lock:
+        previous_event = _microphone_cancel_events.get(session_key)
+        if previous_event is not None:
+            previous_event.set()
+        _microphone_cancel_events[session_key] = cancel_event
+
+    # ALAudioDevice callbacks require a robot-visible NAOqi module and do not
+    # work reliably through Docker NAT. Pepper's built-in recorder keeps the
+    # callback on the robot; ALFileManager then returns the completed WAV over
+    # the existing client connection without SSH credentials.
+    with _microphone_lock:
+        try:
+            recorder.startMicrophonesRecording(
+                PEPPER_MIC_ROBOT_PATH,
+                "wav",
+                PEPPER_MIC_SAMPLE_RATE,
+                [0, 0, 1, 0],  # left, right, front, rear
+            )
+            recording = True
+            audio_device.enableEnergyComputation()
+            started_at = time.time()
+            last_voice_at = started_at
+
+            while True:
+                if cancel_event.is_set():
+                    canceled = True
+                    break
+                now = time.time()
+                elapsed = now - started_at
+                energy = float(audio_device.getFrontMicEnergy())
+                max_energy = max(max_energy, energy)
+                if energy >= PEPPER_MIC_ENERGY_THRESHOLD:
+                    speech_detected = True
+                    last_voice_at = now
+
+                if (speech_detected or not wait_for_speech) and now - last_voice_at >= silence_seconds:
+                    break
+                if elapsed >= max_duration_seconds:
+                    break
+                time.sleep(PEPPER_MIC_ENERGY_POLL_SECONDS)
+
+            recorder.stopMicrophonesRecording()
+            recording = False
+            wav_data = file_manager.getFileContents(PEPPER_MIC_FILE_KEY)
+            if isinstance(wav_data, bytearray):
+                wav_data = str(wav_data)
+            elif not isinstance(wav_data, str):
+                wav_data = bytes(wav_data)
+        finally:
+            if recording:
+                try:
+                    recorder.stopMicrophonesRecording()
+                except Exception:
+                    pass
+            # Overwrite the captured speech immediately after transfer. NAOqi
+            # 2.5 ALFileManager can read files but provides no delete method.
+            try:
+                recorder.startMicrophonesRecording(
+                    PEPPER_MIC_ROBOT_PATH,
+                    "wav",
+                    PEPPER_MIC_SAMPLE_RATE,
+                    [0, 0, 1, 0],
+                )
+                time.sleep(0.05)
+                recorder.stopMicrophonesRecording()
+            except Exception:
+                try:
+                    recorder.stopMicrophonesRecording()
+                except Exception:
+                    pass
+            with _microphone_state_lock:
+                if _microphone_cancel_events.get(session_key) is cancel_event:
+                    _microphone_cancel_events.pop(session_key, None)
+
+    actual_seconds = round(time.time() - started_at, 2) if started_at else 0
+    capture_info = {
+        "actual_seconds": actual_seconds,
+        "speech_detected": speech_detected,
+        "max_energy": round(max_energy, 1),
+        "energy_threshold": PEPPER_MIC_ENERGY_THRESHOLD,
+        "silence_seconds": silence_seconds,
+        "canceled": canceled,
+    }
+    if not wav_data or len(wav_data) <= 44 or not wav_data.startswith("RIFF"):
+        if canceled:
+            return "", 0, capture_info
+        raise RuntimeError(
+            "Pepper microphone returned no WAV audio. Check ALAudioRecorder access."
+        )
+    return (
+        wav_data,
+        max(0, len(wav_data) - 44),
+        capture_info,
+    )
+
+
+def _run_script_job(job_id, script_path, ip, port, language="English", name_param=""):
     env = os.environ.copy()
     env["PEPPER_IP"] = ip
     env["PEPPER_PORT"] = str(port)
-    env["SCRIPT_LANG"] = language  # also available via env
-    env["BIRTHDAY_NAME"] = name_param  # consumed by birthday.py; other scripts ignore it
-
-    cmd = [sys.executable, script_path, "--ip", ip, "--port", str(port), "--lang", language]
+    env["SCRIPT_LANG"] = language
+    env["BIRTHDAY_NAME"] = name_param
+    cmd = [
+        sys.executable,
+        script_path,
+        "--ip",
+        ip,
+        "--port",
+        str(port),
+        "--lang",
+        language,
+    ]
     try:
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
         with _jobs_lock:
             _jobs[job_id]["process"] = p
-
         out, _ = p.communicate()
         output = out.decode("utf-8", "ignore") if not isinstance(out, str) else out
         rc = p.returncode
@@ -215,9 +470,11 @@ def _run_script_job(job_id, script_path, ip, port, language, name_param=""):
             _jobs[job_id]["output"] = output
             _jobs[job_id]["process"] = None
 
-# --------------------------
-# JSON error wrapper
-# --------------------------
+
+
+# --- Error handling decorator for JSON endpoints ---
+
+
 def json_endpoint(fn):
     @wraps(fn)
     def _wrap(*args, **kwargs):
@@ -226,20 +483,40 @@ def json_endpoint(fn):
         except Exception as e:
             traceback.print_exc()
             return jsonify({"ok": False, "error": str(e)}), 400
+
     return _wrap
 
-# -----------------------------------------
-# Animations list (kept from your version)
-# -----------------------------------------
+
+# A small curated list of animations from Aldebaran docs (NAOqi 2.5)
+# You can extend this as needed.
 ANIMATIONS = [
+    # BodyTalk
+    # "animations/Stand/BodyTalk/BodyTalk_1", # These don't seem to work
+    # "animations/Stand/BodyTalk/BodyTalk_2",
+    # "animations/Stand/BodyTalk/BodyTalk_3",
+    # "animations/Stand/BodyTalk/BodyTalk_4",
+    # "animations/Stand/BodyTalk/BodyTalk_5",
+    # "animations/Stand/BodyTalk/BodyTalk_6",
+    # "animations/Stand/BodyTalk/BodyTalk_7",
+    # "animations/Stand/BodyTalk/BodyTalk_8",
+    # "animations/Stand/BodyTalk/BodyTalk_9",
+    # "animations/Stand/BodyTalk/BodyTalk_10",
+    # "animations/Stand/BodyTalk/BodyTalk_11",
+    # "animations/Stand/BodyTalk/BodyTalk_12",
+    # "animations/Stand/BodyTalk/BodyTalk_13",
+    # "animations/Stand/BodyTalk/BodyTalk_14",
+    # "animations/Stand/BodyTalk/BodyTalk_15",
+    # "animations/Stand/BodyTalk/BodyTalk_16",
+    #  Emotions
     "animations/Stand/Emotions/Negative/Bored_1",
     "animations/Stand/Emotions/Neutral/Embarrassed_1",
-    "animations/Stand/Emotions/Positive/Happy_1",  # Has noise
-    "animations/Stand/Emotions/Positive/Happy_2",  # Has noise
-    "animations/Stand/Emotions/Positive/Happy_3",  # Has noise
-    "animations/Stand/Emotions/Positive/Happy_4",  # Has noise
+    "animations/Stand/Emotions/Positive/Happy_1", # Has noise
+    "animations/Stand/Emotions/Positive/Happy_2", # Has noise
+    "animations/Stand/Emotions/Positive/Happy_3", # Has noise
+    "animations/Stand/Emotions/Positive/Happy_4", # Has noise
     "animations/Stand/Emotions/Positive/Hysterical_1",
     "animations/Stand/Emotions/Positive/Peaceful_1",
+    #   Gestures
     "animations/Stand/Gestures/BowShort_1",
     "animations/Stand/Gestures/But_1",
     "animations/Stand/Gestures/CalmDown_1",
@@ -329,53 +606,356 @@ ANIMATIONS = [
     "animations/Stand/Waiting/Think_3",
 ]
 
-# --------------------------
-# Routes
-# --------------------------
+
+ANIMATIONS_GROUPED = {
+    "Gestures": [
+        "animations/Stand/Gestures/Hey_1",
+        "animations/Stand/Gestures/Hello_1",
+        "animations/Stand/Gestures/CalmDown_1",
+        "animations/Stand/Gestures/Enthusiastic_1",
+        "animations/Stand/Gestures/Explain_1",
+        "animations/Stand/Gestures/No_1",
+        "animations/Stand/Gestures/Yes_1",
+        "animations/Stand/Gestures/YouKnowWhat_1",
+        "animations/Stand/Gestures/ShowSky_1",
+        "animations/Stand/Gestures/ShowFloor_1",
+        "animations/Stand/Gestures/Me_1",
+        "animations/Stand/Gestures/Think_1",
+        "animations/Stand/Gestures/Surprised_1",
+        "animations/Stand/Gestures/Clap_1",
+    ],
+    "BodyTalk": [
+        "animations/Stand/BodyTalk/BodyTalk_1",
+        "animations/Stand/BodyTalk/BodyTalk_2",
+        "animations/Stand/BodyTalk/BodyTalk_3",
+        "animations/Stand/BodyTalk/BodyTalk_4",
+    ],
+    "Emotions": [
+        "animations/Stand/Emotions/Positive_1",
+        "animations/Stand/Emotions/Negative_1",
+        "animations/Stand/Emotions/Surprise_1",
+        "animations/Stand/Emotions/Excited_1",
+        "animations/Stand/Emotions/Frustrated_1",
+    ],
+    "Reactions": [
+        "animations/Stand/Reactions/Applause_1",
+        "animations/Stand/Reactions/Joy_1",
+        "animations/Stand/Reactions/Sad_1",
+        "animations/Stand/Reactions/Startled_1",
+    ],
+    "Waiting": [
+        "animations/Stand/Waiting/LookHand_1",
+        "animations/Stand/Waiting/Idle_1",
+        "animations/Stand/Waiting/LookFar_1",
+        "animations/Stand/Waiting/Stretch_1",
+    ],
+}
+
+
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html", animations=ANIMATIONS)
 
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok"})
 
-# ---- Connectivity ----
 @app.route("/api/connect-test", methods=["POST"])
 @json_endpoint
 def api_connect():
+    data = request.get_json(force=True)
+    ip = data.get("ip", "").strip()
+    port = int(data.get("port", 9559))
+    if not ip:
+        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
+    # Only one service-discovery handshake may run at a time, even if several
+    # browser tabs click Connect together. A failed qi session is discarded so
+    # later requests cannot reuse its canceled futures.
+    with _connect_test_lock:
+        try:
+            session = get_session(ip, port)
+            system = session.service("ALSystem")
+            if not system.ping():
+                raise RuntimeError("Pepper's ALSystem service did not respond")
+        except Exception:
+            discard_session(ip, port)
+            raise
+    return jsonify({"ok": True})
+
+
+@app.route("/api/camera-frame", methods=["GET"])
+@json_endpoint
+def api_camera_frame():
+    ip = (request.args.get("ip") or "").strip()
+    port = int(request.args.get("port", 9559))
+    camera_name = (request.args.get("camera") or "top").strip().lower()
+    resolution_name = (request.args.get("resolution") or "320x240").strip().lower()
+    fps = max(1, min(5, int(request.args.get("fps", 2))))
+
+    if not ip:
+        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
+    if camera_name not in CAMERA_IDS:
+        return jsonify({"ok": False, "error": "Camera must be 'top' or 'bottom'"}), 400
+    if resolution_name not in CAMERA_RESOLUTIONS:
+        return jsonify({
+            "ok": False,
+            "error": "Resolution must be one of: %s" % ", ".join(sorted(CAMERA_RESOLUTIONS)),
+        }), 400
+
+    png = capture_camera_png(ip, port, camera_name, resolution_name, fps)
+    return Response(
+        png,
+        mimetype="image/png",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.route("/api/local-ai/status", methods=["GET"])
+def api_local_ai_status():
+    """Detect a running local Ollama service and list its downloaded models."""
+    try:
+        version_data = ollama_request("/api/version", timeout=3)
+        names = ollama_models()
+        return jsonify({
+            "ok": True,
+            "available": True,
+            "provider": "Ollama",
+            "version": version_data.get("version", "unknown"),
+            "models": names,
+            "preferred_model": preferred_ollama_model(names),
+            "download_url": OLLAMA_DOWNLOAD_URL,
+            "start_command": "ollama serve",
+        })
+    except Exception as exc:
+        return jsonify({
+            "ok": True,
+            "available": False,
+            "provider": "Ollama",
+            "models": [],
+            "preferred_model": OLLAMA_MODEL,
+            "download_url": OLLAMA_DOWNLOAD_URL,
+            "start_command": "ollama serve",
+            "error": str(exc),
+        })
+
+
+@app.route("/api/local-ai/chat", methods=["POST"])
+@json_endpoint
+def api_local_ai_chat():
+    data = request.get_json(force=True)
+    prompt = (data.get("prompt") or "").strip()
+    model = (data.get("model") or OLLAMA_MODEL).strip()
+    history = data.get("messages") or []
+
+    if not prompt:
+        return jsonify({"ok": False, "error": "Say or type something first"}), 400
+    if len(prompt) > 4000:
+        return jsonify({"ok": False, "error": "Message is too long"}), 400
+    if not model or len(model) > 100:
+        return jsonify({"ok": False, "error": "Invalid model name"}), 400
+
+    installed_models = ollama_models()
+    if model not in installed_models:
+        return jsonify({
+            "ok": False,
+            "error": "Model '%s' is not downloaded in Ollama" % model,
+            "models": installed_models,
+        }), 400
+
+    messages = [{"role": "system", "content": PEPPER_SYSTEM_PROMPT}]
+    for item in history[-12:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role not in ("user", "assistant") or not isinstance(content, basestring):
+            continue
+        content = content.strip()
+        if content:
+            messages.append({"role": role, "content": content[:4000]})
+    messages.append({"role": "user", "content": prompt})
+
+    result = ollama_request(
+        "/api/chat",
+        {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": 0.6, "num_predict": 160},
+        },
+        timeout=OLLAMA_TIMEOUT_SECONDS,
+    )
+    reply = ((result.get("message") or {}).get("content") or "").strip()
+    if not reply:
+        raise RuntimeError("Ollama returned an empty reply")
+    return jsonify({"ok": True, "model": model, "reply": reply})
+
+
+@app.route("/api/local-speech/status", methods=["GET"])
+def api_local_speech_status():
+    """Detect the native macOS MLX Whisper helper running on the Docker host."""
+    try:
+        status = local_stt_request("/status", timeout=3)
+        return jsonify({
+            "ok": True,
+            "available": bool(status.get("ok") and status.get("available")),
+            "provider": status.get("engine", "MLX Whisper"),
+            "model": status.get("model", "mlx-community/whisper-tiny"),
+            "language": status.get("language", "auto"),
+            "setup_url": LOCAL_STT_SETUP_URL,
+            "setup_command": "./setup_local_speech.sh",
+            "start_command": "./run_local_services.sh",
+        })
+    except Exception as exc:
+        return jsonify({
+            "ok": True,
+            "available": False,
+            "provider": "MLX Whisper",
+            "model": "mlx-community/whisper-tiny",
+            "setup_url": LOCAL_STT_SETUP_URL,
+            "setup_command": "./setup_local_speech.sh",
+            "start_command": "./run_local_services.sh",
+            "error": str(exc),
+        })
+
+
+@app.route("/api/pepper-listen", methods=["POST"])
+@json_endpoint
+def api_pepper_listen():
+    """Capture one utterance from Pepper and transcribe it on the local Mac."""
     data = request.get_json(force=True)
     ip = (data.get("ip") or "").strip()
     port = int(data.get("port", 9559))
     if not ip:
         return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-    audio, _ = with_services(ip, port)
-    _ = audio.getMasterVolume()  # tiny no-op to confirm call works
+
+    try:
+        duration_seconds = int(data.get("duration", 30))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Duration must be a number"}), 400
+    duration_seconds = max(
+        PEPPER_MIC_MIN_SECONDS,
+        min(PEPPER_MIC_MAX_SECONDS, duration_seconds),
+    )
+    continuous = bool(data.get("continuous", False))
+
+    try:
+        stt_status = local_stt_request("/status", timeout=3)
+    except Exception:
+        return jsonify({
+            "ok": False,
+            "error": (
+                "Local speech recognition is not running. Start it with "
+                "./run_local_services.sh on this computer."
+            ),
+        }), 400
+    if not stt_status.get("ok") or not stt_status.get("available"):
+        return jsonify({"ok": False, "error": "Local speech recognition is not ready"}), 400
+
+    wav_data, pcm_bytes, capture_info = capture_pepper_microphone_wav(
+        ip,
+        port,
+        duration_seconds,
+        wait_for_speech=continuous,
+    )
+    if capture_info.get("canceled"):
+        return jsonify({
+            "ok": True,
+            "canceled": True,
+            "transcript": "",
+            "capture_seconds": capture_info.get("actual_seconds"),
+        })
+    result = local_stt_request(
+        "/transcribe",
+        {"audio_wav_base64": base64.b64encode(wav_data)},
+        timeout=LOCAL_STT_TIMEOUT_SECONDS,
+    )
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error") or "Speech recognition failed")
+
+    return jsonify({
+        "ok": True,
+        "transcript": (result.get("transcript") or "").strip(),
+        "language": result.get("language"),
+        "model": result.get("model"),
+        "transcription_seconds": result.get("elapsed_seconds"),
+        "capture_seconds": capture_info.get("actual_seconds"),
+        "silence_seconds": capture_info.get("silence_seconds"),
+        "speech_detected": capture_info.get("speech_detected"),
+        "max_energy": capture_info.get("max_energy"),
+        "energy_threshold": capture_info.get("energy_threshold"),
+        "canceled": False,
+        "pcm_bytes": pcm_bytes,
+    })
+
+
+@app.route("/api/conversation-stop", methods=["POST"])
+@json_endpoint
+def api_conversation_stop():
+    """Cancel the active microphone turn and stop Pepper's current speech."""
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    if not ip:
+        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
+
+    session_key = "%s:%s" % (ip, port)
+    with _microphone_state_lock:
+        cancel_event = _microphone_cancel_events.get(session_key)
+        if cancel_event is not None:
+            cancel_event.set()
+
+    try:
+        session = get_session(ip, port)
+        session.service("ALTextToSpeech").stopAll()
+    except Exception:
+        pass
+    return jsonify({"ok": True, "listening_stopped": cancel_event is not None})
+
+
+@app.route("/api/pepper-speak", methods=["POST"])
+@json_endpoint
+def api_pepper_speak():
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    text = (data.get("text") or "").strip()
+    if not ip or not text:
+        return jsonify({"ok": False, "error": "'ip' and 'text' are required"}), 400
+    if len(text) > 1200:
+        return jsonify({"ok": False, "error": "Speech is limited to 1200 characters"}), 400
+
+    session = get_session(ip, port)
+    speech = session.service("ALTextToSpeech")
+    speech.say(text.encode("utf-8") if isinstance(text, unicode) else text)
     return jsonify({"ok": True})
 
-# ---- Audio ----
+
 @app.route("/api/play-audio", methods=["POST"])
 @json_endpoint
 def api_play_audio():
     data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
+    ip = data.get("ip", "").strip()
     port = int(data.get("port", 9559))
-    path = (data.get("path") or "").strip()
+    path = data.get("path", "").strip()
     if not ip or not path:
         return jsonify({"ok": False, "error": "'ip' and 'path' are required"}), 400
+
     audio, _ = with_services(ip, port)
     file_id = audio.loadFile(path)
     audio.play(file_id)
     return jsonify({"ok": True, "fileId": int(file_id)})
 
+
 @app.route("/api/stop-audio", methods=["POST"])
 @json_endpoint
 def api_stop_audio():
     data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
+    ip = data.get("ip", "").strip()
     port = int(data.get("port", 9559))
     if not ip:
         return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
+
     audio, _ = with_services(ip, port)
     try:
         audio.stopAll()
@@ -383,33 +963,36 @@ def api_stop_audio():
         pass
     return jsonify({"ok": True})
 
-# ---- Animations ----
+
 @app.route("/api/run-animation", methods=["POST"])
 @json_endpoint
 def api_run_animation():
     data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
+    ip = data.get("ip", "").strip()
     port = int(data.get("port", 9559))
-    animation = (data.get("animation") or "").strip()
+    animation = data.get("animation", "").strip()
     mode = (data.get("mode", "sync") or "sync").lower()
     if not ip or not animation:
         return jsonify({"ok": False, "error": "'ip' and 'animation' are required"}), 400
+
     _, anim = with_services(ip, port)
     if mode == "async":
-        _fut = anim.run(animation, _async=True)
+        _future = anim.run(animation, _async=True)
         return jsonify({"ok": True, "async": True})
     else:
         anim.run(animation)
         return jsonify({"ok": True, "async": False})
 
+
 @app.route("/api/stop-animation", methods=["POST"])
 @json_endpoint
-def api_stop_animation():
+def api_stop_animations():
     data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
+    ip = data.get("ip", "").strip()
     port = int(data.get("port", 9559))
     if not ip:
         return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
+
     _, anim = with_services(ip, port)
     try:
         anim.stopAll()
@@ -417,7 +1000,7 @@ def api_stop_animation():
         pass
     return jsonify({"ok": True})
 
-# ---- Behaviors (installed Choregraphe behaviors) ----
+
 @app.route("/api/list-behaviors", methods=["POST"])
 @json_endpoint
 def api_list_behaviors():
@@ -426,12 +1009,12 @@ def api_list_behaviors():
     port = int(data.get("port", 9559))
     if not ip:
         return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-    sess = get_session(ip, port)
-    bm = sess.service("ALBehaviorManager")
-    installed = list(bm.getInstalledBehaviors())
-    running = set(bm.getRunningBehaviors())
-    installed.sort(key=lambda s: s.lower())
-    return jsonify({"ok": True, "behaviors": installed, "running": list(running)})
+    manager = get_session(ip, port).service("ALBehaviorManager")
+    return jsonify({
+        "ok": True,
+        "behaviors": manager.getInstalledBehaviors(),
+        "running": manager.getRunningBehaviors(),
+    })
 
 
 @app.route("/api/run-behavior", methods=["POST"])
@@ -443,13 +1026,9 @@ def api_run_behavior():
     behavior = (data.get("behavior") or "").strip()
     if not ip or not behavior:
         return jsonify({"ok": False, "error": "'ip' and 'behavior' are required"}), 400
-    sess = get_session(ip, port)
-    bm = sess.service("ALBehaviorManager")
-    if not bm.isBehaviorInstalled(behavior):
-        return jsonify({"ok": False, "error": "Behavior not installed: " + behavior}), 404
-    # Fire-and-forget — the portal can poll /api/list-behaviors to see running state.
-    bm.runBehavior(behavior, _async=True)
-    return jsonify({"ok": True, "behavior": behavior})
+    manager = get_session(ip, port).service("ALBehaviorManager")
+    manager.startBehavior(behavior)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/stop-behavior", methods=["POST"])
@@ -458,37 +1037,25 @@ def api_stop_behavior():
     data = request.get_json(force=True)
     ip = (data.get("ip") or "").strip()
     port = int(data.get("port", 9559))
-    behavior = (data.get("behavior") or "").strip()
     if not ip:
         return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-    sess = get_session(ip, port)
-    bm = sess.service("ALBehaviorManager")
+    manager = get_session(ip, port).service("ALBehaviorManager")
     try:
-        if behavior:
-            bm.stopBehavior(behavior)
-        else:
-            bm.stopAllBehaviors()
+        manager.stopAllBehaviors()
     except Exception:
         pass
     return jsonify({"ok": True})
 
-
-# ---- Scripts listing/running (scripts/) ----
-
 @app.route("/api/scripts", methods=["GET"])
 def api_scripts():
-    items = []
-    try:
-        for fn in os.listdir(SCRIPTS_DIR):
-            if fn.startswith("."):
-                continue
-            if fn.lower().endswith(".py"):
-                items.append(fn)
-        items.sort(key=lambda s: s.lower())
-        return jsonify({"ok": True, "scripts": items})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
+    if not os.path.isdir(SCRIPTS_DIR):
+        return jsonify({"ok": True, "scripts": []})
+    names = []
+    for name in os.listdir(SCRIPTS_DIR):
+        if name.endswith(".py") and not name.startswith("_"):
+            names.append(name)
+    names.sort()
+    return jsonify({"ok": True, "scripts": names})
 
 @app.route("/api/run-script", methods=["POST"])
 @json_endpoint
@@ -499,15 +1066,14 @@ def api_run_script():
     script = (data.get("script") or "").strip()
     language = (data.get("language") or "English").strip()
     name_param = (data.get("name_param") or "").strip()
-
     if not ip or not script:
         return jsonify({"ok": False, "error": "Provide 'ip' and 'script'"}), 400
-    # guard path traversal
-    if ("/" in script) or ("\\" in script) or script.startswith(".") or (".." in script):
+
+    if not _safe_name(script):
         return jsonify({"ok": False, "error": "Unsafe script name"}), 400
     spath = _safe_join(SCRIPTS_DIR, script)
     if not os.path.isfile(spath):
-        return jsonify({"ok": False, "error": "Script not found"}), 404
+        return jsonify({"ok": False, "error": "Invalid script"}), 400
 
     job_id = str(next(_job_counter))
     with _jobs_lock:
@@ -520,10 +1086,12 @@ def api_run_script():
         }
 
     t = threading.Thread(
-        target=_run_script_job, args=(job_id, spath, ip, port, language, name_param)
+        target=_run_script_job,
+        args=(job_id, spath, ip, port, language, name_param),
     )
     t.daemon = True
     t.start()
+
     return jsonify({"ok": True, "job_id": job_id})
 
 
@@ -531,60 +1099,39 @@ def api_run_script():
 @json_endpoint
 def api_stop_script():
     data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
     job_id = (data.get("job_id") or "").strip()
-    audio, anim = with_services(ip, port)
-    audio.stopAll()
-    anim.stopAll()
     with _jobs_lock:
         job = _jobs.get(job_id)
         if not job:
             return jsonify({"ok": False, "error": "Unknown job_id"}), 404
-        p = job.get("process")
-
-    if p and p.poll() is None:
+        process = job.get("process")
+    if process and process.poll() is None:
         try:
-            # graceful first
-            p.terminate()
+            process.terminate()
+            process.wait()
+        except Exception:
             try:
-                p.wait(timeout=2)
+                process.kill()
             except Exception:
                 pass
-            if p.poll() is None:
-                p.kill()
-        except Exception:
-            pass
-
         with _jobs_lock:
             job["done"] = True
             job["rc"] = -9
             job["output"] = (job.get("output") or "") + "\n[stopped by user]"
             job["process"] = None
         return jsonify({"ok": True, "stopped": True})
-
     return jsonify({"ok": True, "stopped": False})
-
 
 @app.route("/api/script-status", methods=["GET"])
 def api_script_status():
-    job_id = (request.args.get("job_id") or "").strip()
+    job_id = request.args.get("job_id", "").strip()
     with _jobs_lock:
         state = _jobs.get(job_id)
         if not state:
             return jsonify({"ok": False, "error": "Unknown job_id"}), 404
         # Return a copy
-        return jsonify(
-            {
-                "ok": True,
-                "done": state["done"],
-                "rc": state["rc"],
-                "output": state["output"],
-            }
-        )
+        return jsonify({"ok": True, "done": state["done"], "rc": state["rc"], "output": state["output"]})
 
-
-# ---- Modes / state ----
 @app.route("/api/mode-status", methods=["POST"])
 @json_endpoint
 def api_mode_status():
@@ -598,23 +1145,23 @@ def api_mode_status():
     # Awake / sleep (motors)
     motion = sess.service("ALMotion")
     try:
-        is_awake = bool(
-            motion.robotIsWakeUp()
-        )  # True if motors on (wakeUp), False if rest
+        is_awake = bool(motion.robotIsWakeUp())  # True if motors on (wakeUp), False if rest
     except Exception:
+        # Fallback: if robotIsWakeUp missing, infer from stiffness
         try:
             is_awake = any(motion.getStiffnesses("Body"))
         except Exception:
             is_awake = False
 
-    # Autonomous Life state as "animation mode"
+    # Autonomous Life state -> use as our "animation mode"
     animation_enabled = False
     life_state = "unknown"
     try:
         life = sess.service("ALAutonomousLife")
-        life_state = life.getState()
+        life_state = life.getState()  # "disabled","solitary","interactive","safeguard"
         animation_enabled = life_state != "disabled"
     except Exception:
+        # Fallback: BasicAwareness
         try:
             awareness = sess.service("ALBasicAwareness")
             animation_enabled = bool(awareness.isEnabled())
@@ -622,56 +1169,53 @@ def api_mode_status():
         except Exception:
             pass
 
-    return jsonify(
-        {
-            "ok": True,
-            "is_awake": is_awake,
-            "animation_enabled": animation_enabled,
-            "life_state": life_state,
-        }
-    )
-
+    return jsonify({
+        "ok": True,
+        "is_awake": is_awake,
+        "animation_enabled": animation_enabled,
+        "life_state": life_state,
+    })
 
 @app.route("/api/sleep", methods=["POST"])
 @json_endpoint
 def api_sleep():
     data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
+    ip = data.get("ip", "").strip()
     port = int(data.get("port", 9559))
     action = (data.get("action") or "").strip().lower()
     if not ip or action not in ("rest", "wake"):
-        return (
-            jsonify(
-                {"ok": False, "error": "Provide 'ip' and action in {'rest','wake'}"}
-            ),
-            400,
-        )
+        return jsonify({"ok": False, "error": "Provide 'ip' and action in {'rest','wake'}"}), 400
 
     sess = get_session(ip, port)
     motion = sess.service("ALMotion")
     if action == "rest":
-        motion.rest()  # motors off / relaxed
+        motion.rest()     # motors off / relaxed
     else:
-        motion.wakeUp()  # motors on / ready
+        motion.wakeUp()   # motors on / ready
     return jsonify({"ok": True, "action": action})
-    
+
 
 @app.route("/api/animation-mode", methods=["POST"])
 @json_endpoint
 def api_animation_mode():
-    # TODO - http://doc.aldebaran.com/2-5/naoqi/interaction/autonomouslife-api.html
     data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
+    ip = data.get("ip", "").strip()
     port = int(data.get("port", 9559))
     enabled = bool(data.get("enabled", True))
     if not ip:
         return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
 
     sess = get_session(ip, port)
+    # Use Autonomous Life to toggle idle/animation-like behaviors.
+    life = sess.service("ALAutonomousLife")
     try:
-        life = sess.service("ALAutonomousLife")
-        life.setState("solitary" if enabled else "disabled")
+        if enabled:
+            # 'solitary' is a safe default that enables idle animations/awareness
+            life.setState("solitary")
+        else:
+            life.setState("disabled")
     except Exception:
+        # Some images prefer BasicAwareness toggle as fallback
         try:
             awareness = sess.service("ALBasicAwareness")
             awareness.setEnabled(enabled)
@@ -679,89 +1223,81 @@ def api_animation_mode():
             pass
     return jsonify({"ok": True, "enabled": enabled})
 
-# ---- Scenes (scenes/) ----
+
 @app.route("/api/list-scenes", methods=["GET"])
 def api_list_scenes():
-    """Return scene base names (without .json) from SCENES_DIR."""
     items = []
     try:
-        for fn in os.listdir(SCENES_DIR):
-            if fn.startswith("."):
-                continue
-            if fn.lower().endswith(".json"):
-                items.append(fn[:-5])
-        items.sort(key=lambda s: s.lower())
+        for filename in os.listdir(SCENES_DIR):
+            if not filename.startswith(".") and filename.lower().endswith(".json"):
+                items.append(filename[:-5])
+        items.sort(key=lambda value: value.lower())
         return jsonify(items)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
 
 @app.route("/api/get-scene/<name>", methods=["GET"])
 def api_get_scene(name):
-    """Load a scene JSON by name (no extension)."""
-    base = _safe_name(name)
-    if not base:
+    safe_name = _safe_name(name)
+    if not safe_name:
         return jsonify({"ok": False, "error": "Invalid scene name"}), 400
-    path = _safe_join(SCENES_DIR, base + ".json")
+    path = _safe_join(SCENES_DIR, safe_name + ".json")
     if not os.path.exists(path):
         return jsonify({"ok": False, "error": "Scene not found"}), 404
     try:
-        with io.open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return jsonify(data)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        with io.open(path, "r", encoding="utf-8") as handle:
+            return jsonify(json.load(handle))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
 
 @app.route("/api/save-scene", methods=["POST"])
 @json_endpoint
 def api_save_scene():
     data = request.get_json(force=True)
-    name = (data.get("name") or "").strip()
-    steps = data.get("steps", [])
+    name = _safe_name(data.get("name"))
+    steps = data.get("steps")
     if not name or not isinstance(steps, list):
         return jsonify({"ok": False, "error": "Name and steps (array) required"}), 400
-
-    scene = {"script_name": name, "scene": steps}
-    try:
-        if not os.path.isdir(SCENES_DIR):
-            os.makedirs(SCENES_DIR)
-    except OSError:
-        pass
-
     path = _safe_join(SCENES_DIR, name + ".json")
-    _json_write_utf8(path, scene)   # <-- use the helper here
+    _json_write_utf8(path, {"script_name": name, "scene": steps})
     return jsonify({"ok": True, "filename": os.path.basename(path)})
+
 
 @app.route("/api/run-scene", methods=["POST"])
 @json_endpoint
 def api_run_scene():
     data = request.get_json(force=True)
-    name = (data.get("name") or "").strip()
+    name = _safe_name(data.get("name"))
     ip = (data.get("ip") or "").strip()
     port = int(data.get("port", 9559))
-
     if not name or not ip:
-        return jsonify({"ok": False, "error": "Missing script name or IP"}), 400
-
+        return jsonify({"ok": False, "error": "Missing scene name or IP"}), 400
     if PepperController is None or PepperScripter is None:
-        return jsonify({"ok": False, "error": "PepperController/Scripter not available"}), 500
-
+        return jsonify({"ok": False, "error": "Pepper scene controller is unavailable"}), 500
     scene_path = _safe_join(SCENES_DIR, name + ".json")
     if not os.path.exists(scene_path):
-        return jsonify({"ok": False, "error": "Scene not found {}".format(scene_path)}), 404
+        return jsonify({"ok": False, "error": "Scene not found"}), 404
+    controller = PepperController(ip=ip, port=port, verbose=True)
+    scripter = PepperScripter(controller=controller, blocking=True, verbose=True)
+    completed = scripter.run_scene(scene_path, base=os.path.dirname(scene_path))
+    return jsonify({
+        "ok": bool(completed),
+        "status": "completed" if completed else "no_actions",
+    })
 
-    try:
-        ctrl = PepperController(ip=ip, port=port, verbose=True)
-        # Blocking=True ensures each event completes before the next
-        scripter = PepperScripter(controller=ctrl, blocking=True, verbose=True)
-        ok = scripter.run_scene(scene_path, base=os.path.dirname(scene_path))
-        return jsonify({"ok": ok, "status": "completed" if ok else "no_actions"})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
 
-# --------------------------
-# Main
-# --------------------------
+
+@app.route("/health", methods=["GET"])
+def health():
+    return {"status": "ok"}
+
+
 if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "5000"))
-    app.run(host=host, port=port, debug=True)
+    debug = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
+    # Keep local Llama requests responsive even while a robot call is waiting
+    # on the lab network or Pepper is speaking a longer reply.
+    app.run(host=host, port=port, debug=debug, threaded=True)

@@ -3,3 +3,4 @@ pynaoqi-python2.7-*-linux64.tar.gz
 .vscode
 *.tar.gz
 *.run
+.venv-stt/
