@@ -207,9 +207,39 @@ The Whisper model downloads on first use. The portal reaches it at
 Open the portal, connect to Pepper, confirm the local services are ready, and select
 **Start conversation**. The loop continues until **Stop** is selected.
 
+### Llama-controlled gestures
+
+With **Allow occasional gestures and direct gesture requests** enabled, Llama returns structured speech plus one optional gesture from a server-side allowlist. During normal conversation, Pepper performs a matching gesture occasionally (35% of eligible suggestions by default), rather than moving on every reply. Explicit requests such as “wave hello,” “bow politely,” “nod yes,” or “do a thinking gesture” are marked as requested and are performed without the occasional-use filter.
+
+The server validates every gesture key before starting its preprogrammed animation alongside `ALTextToSpeech`. Unknown animation paths are rejected, and a gesture failure does not prevent Pepper from speaking. Set `PEPPER_GESTURE_CHANCE` between `0` and `1` to change the frequency of optional gestures; explicit requests are unaffected.
+
 Pepper microphone captures are transferred through NAOqi, overwritten on the robot, and deleted from the computer after transcription. Ask permission before recording other people. Browser microphone recognition remains an optional fallback whose processing depends on the browser.
 
 Use `http://127.0.0.1:8081/?preview=1` to inspect the interface without connecting to a robot.
+
+## Local visual questions
+
+The Vision workspace can capture one fresh `640x480` frame from Pepper's selected camera and send it to a vision-language model running locally in Ollama. Type a question such as “What am I holding?”, select **Ask about this view**, and the answer is shown in the dashboard. Alternatively, select **Ask through Pepper mic**: Pepper records one question until three seconds of silence, MLX Whisper transcribes it locally, and the portal automatically captures a fresh frame and submits the question. With **Have Pepper speak the answer** enabled, the same answer is sent to `ALTextToSpeech` after the visual analysis finishes.
+
+Download the default `llava:latest` model into the shared Ollama volume once:
+
+```bash
+docker compose up ollama-vision-pull
+```
+
+For a newer lightweight option, use
+`OLLAMA_VISION_MODEL=qwen3-vl:4b docker compose up ollama-vision-pull` and start the portal with
+the same `OLLAMA_VISION_MODEL` value.
+
+The portal detects installed models that report Ollama's `vision` capability and falls back to known vision-model names for older Ollama releases. Set `OLLAMA_VISION_MODEL` to change the preferred model. Images are processed on demand rather than as a continuous VLM stream, and the portal does not save the captured frame. Visual answers can be wrong, especially for small objects, poor lighting, or objects held far from Pepper's camera, so they should not be used for safety-critical decisions.
+
+When **Start Vision** is selected, the portal temporarily disables Pepper's `BasicAwareness` autonomous ability so its head does not keep turning toward detected faces. It records both the Autonomous Life ability state and the direct `ALBasicAwareness` state, then restores them when Vision stops, Pepper disconnects, or the page closes. This does not disable camera capture, speech, collision protection, or the portal's allowlisted gestures.
+
+### Memory limits
+
+The portal serializes all Ollama generation requests, so the conversation model and vision model cannot generate at the same time. Requests use a `4096`-token context and `keep_alive: 0`. After every answer, the portal explicitly requests an unload and waits for `/api/ps` to confirm that the model left memory before allowing another generation. This keeps memory use predictable at the cost of reloading the model for each turn. The Compose Ollama service also allows only one loaded model and one parallel request.
+
+The defaults can be adjusted with `OLLAMA_CONTEXT_LENGTH` (clamped by the portal to `1024`–`8192`) and `OLLAMA_KEEP_ALIVE_SECONDS`, but leaving them at `4096` and `0` is recommended on an 18 GB Mac. Use `ollama ps` to confirm that no model remains loaded after a response finishes.
 
 ## Development Workflow
 
