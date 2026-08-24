@@ -28,6 +28,47 @@ Then the media files can be copied into this directory:
 scp <file_name> nao@192.168.1.5:/data/home/nao/.local/share/wav/
 ```
 
+## Always-On Deployment (Jetson, Raspberry Pi, etc.)
+
+For a machine that stays on and should just come back up after every reboot
+(a Jetson sitting near the robot, say), skip the manual build/run steps below
+and use the two scripts in this repo instead:
+
+```bash
+./install/setup_services.sh   # one-time: installs docker if missing, binfmt
+                               # handlers on ARM, builds the image, brings
+                               # everything up, pulls the Ollama model once
+```
+
+That's it for setup. Containers run with `restart: unless-stopped`, so as
+long as `docker.service` is enabled (the script does this too) they come back
+on their own after every reboot — nothing needs to run at boot.
+
+Day to day, use the wrapper instead of raw `docker compose`:
+
+```bash
+./pepper.sh start      # bring the portal (+ ollama) up
+./pepper.sh stop       # stop containers
+./pepper.sh status     # docker compose ps
+./pepper.sh logs       # follow portal logs
+./pepper.sh monitor    # tmux dashboard: logs, container status, and the
+                        # machine's IP address, each in their own window/pane
+```
+
+`./pepper.sh monitor` attaches to an existing `pepper` tmux session if one is
+already running, so it's safe to run repeatedly without spawning duplicates.
+It shows `jtop` in the "system" window if `jetson-stats` is installed,
+otherwise falls back to `top`.
+
+Both scripts auto-detect architecture (`pepper-portal-arm` on ARM hosts,
+`pepper-portal` on native x86-64) so the same commands work whether you're on
+the Jetson or a dev laptop.
+
+A `ros` service is defined in `docker-compose.yaml` behind a Compose profile
+as a placeholder for the future ROS integration — it does not start with a
+plain `docker compose up`. Once the ROS side is decided, fill in its image
+and command and bring it up with `docker compose --profile ros up -d`.
+
 ## Build and Run the Container
 
 > **The one rule:** the NAOqi Python SDK (pynaoqi) ships **x86-64-only** binaries, so this image

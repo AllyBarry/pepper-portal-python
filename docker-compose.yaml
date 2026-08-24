@@ -21,6 +21,10 @@ x-pepper-portal: &pepper-portal
     - /tmp/.X11-unix:/tmp/.X11-unix
   stdin_open: true
   tty: true
+  # Comes back on its own after a reboot: Docker's own restart policy plus
+  # `docker.service` being enabled (see install/setup_services.sh) means no
+  # separate boot-time script is needed.
+  restart: unless-stopped
 
 services:
   # Ollama runs natively for the host CPU/GPU — deliberately NOT the amd64 pin the
@@ -95,6 +99,18 @@ services:
         condition: service_healthy
     ports:
       - "8088:5000"
+
+  # Placeholder for the future ROS integration. Gated behind a profile so it
+  # never starts as part of the normal `docker compose up -d` flow — only
+  # `docker compose --profile ros up -d` touches it. Replace the image/command
+  # once the ROS side of this project is decided.
+  ros:
+    image: ros:humble
+    container_name: pepper_portal_ros
+    profiles: ["ros"]
+    network_mode: host
+    restart: unless-stopped
+    command: ["bash", "-c", "echo 'ROS service placeholder — configure me in docker-compose.yaml'; sleep infinity"]
 
 volumes:
   ollama-models:
