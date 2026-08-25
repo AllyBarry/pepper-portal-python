@@ -200,7 +200,18 @@ docker compose up -d
 Weights download once into the `whisper-models` volume. The service builds for the native
 architecture (no `platform:` pin), so it also works on the Jetson and Pi targets.
 
-**Host MLX (faster on Apple Silicon).** MLX reaches Metal, which Docker's Linux VM cannot, so it
+The portal logs its configuration and probes every dependency at startup, and
+`GET /api/services` repeats the check on demand — the result goes to the container log too, so
+`docker compose logs -f pepper-portal` (or `pepper-portal-arm`) is the whole monitoring story:
+
+```
+[2026-08-25 15:15:52] pepper portal listening on http://0.0.0.0:5000
+[2026-08-25 15:15:52]   ollama          up      12ms  http://ollama:11434/api/tags
+[2026-08-25 15:15:52]   speech-to-text  up       6ms  http://speech-to-text:8765/health
+```
+
+**Host MLX (Apple Silicon only, manual).** The portal no longer advertises this path — it always
+reports the container — but the scripts still work if you want the faster backend on a Mac. MLX reaches Metal, which Docker's Linux VM cannot, so it
 stays roughly 4-5x quicker per clip. Install it once:
 
 ```bash

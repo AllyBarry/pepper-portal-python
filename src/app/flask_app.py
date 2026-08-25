@@ -116,8 +116,7 @@ LOCAL_STT_BASE_URL = os.environ.get(
     "LOCAL_STT_BASE_URL", "http://host.docker.internal:8765"
 ).rstrip("/")
 LOCAL_STT_TIMEOUT_SECONDS = int(os.environ.get("LOCAL_STT_TIMEOUT_SECONDS", "180"))
-LOCAL_STT_SETUP_URL = "https://pypi.org/project/mlx-whisper/"
-LOCAL_STT_CONTAINER_SETUP_URL = "https://pypi.org/project/faster-whisper/"
+LOCAL_STT_SETUP_URL = "https://pypi.org/project/faster-whisper/"
 PEPPER_MIC_SAMPLE_RATE = 16000
 PEPPER_MIC_MIN_SECONDS = 2
 PEPPER_MIC_MAX_SECONDS = 45
@@ -1248,36 +1247,22 @@ def api_local_vision_ask():
 
 
 def local_stt_guidance():
-    """Setup/start commands for whichever speech backend LOCAL_STT_BASE_URL targets.
+    """What to tell the operator when speech-to-text is unreachable.
 
-    The two backends are started in completely different ways, so guidance shown
-    when the service is unreachable has to follow the configured URL: a host name
-    means the MLX helper on the Mac, anything else means the Compose service.
+    Speech-to-text is a Compose service, so recovery is always a compose command.
     """
-    host_backed = any(
-        name in LOCAL_STT_BASE_URL
-        for name in ("host.docker.internal", "127.0.0.1", "localhost")
-    )
-    if host_backed:
-        return {
-            "provider": "MLX Whisper",
-            "model": "mlx-community/whisper-tiny",
-            "setup_command": "./setup_local_speech.sh",
-            "start_command": "./run_local_services.sh",
-            "setup_url": LOCAL_STT_SETUP_URL,
-        }
     return {
         "provider": "faster-whisper (CPU)",
         "model": "tiny",
         "setup_command": "docker compose build speech-to-text",
         "start_command": "docker compose up -d speech-to-text",
-        "setup_url": LOCAL_STT_CONTAINER_SETUP_URL,
+        "setup_url": LOCAL_STT_SETUP_URL,
     }
 
 
 @app.route("/api/local-speech/status", methods=["GET"])
 def api_local_speech_status():
-    """Report on the speech backend, host MLX helper or speech-to-text container."""
+    """Report on the speech-to-text container."""
     guidance = local_stt_guidance()
     try:
         status = local_stt_request("/status", timeout=3)
@@ -1800,10 +1785,91 @@ def health():
     return {"status": "ok"}
 
 
+# --- Dependency monitoring -------------------------------------------------
+# Deliberately minimal: no background threads, no metrics stack. Services are
+# probed on demand and the result printed to stdout, so `docker compose logs -f`
+# is the whole monitoring story.
+
+def log_event(message):
+    print("[%s] %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), message))
+    sys.stdout.flush()
+
+
+def service_registry():
+    """The sibling containers this portal depends on, and a cheap probe for each."""
+    return [
+        ("ollama", OLLAMA_BASE_URL + "/api/tags"),
+        ("speech-to-text", LOCAL_STT_BASE_URL + "/health"),
+    ]
+
+
+def probe_service(url, timeout=2):
+    """Returns (ok, error, latency_ms). Kept self-contained so concurrent
+    requests cannot clobber each other's timings."""
+    started = time.time()
+    try:
+        urllib2.urlopen(
+            urllib2.Request(url, headers={"Accept": "application/json"}),
+            timeout=timeout,
+        ).read()
+        ok, error = True, ""
+    except Exception as exc:
+        ok, error = False, str(exc)
+    return ok, error, int((time.time() - started) * 1000)
+
+
+def probe_all_services():
+    report = []
+    for name, url in service_registry():
+        ok, error, latency_ms = probe_service(url)
+        report.append({
+            "name": name,
+            "url": url,
+            "ok": ok,
+            "latency_ms": latency_ms,
+            "error": error,
+        })
+    return report
+
+
+def log_service_report(report):
+    for entry in report:
+        log_event("  %-15s %-5s %4sms  %s%s" % (
+            entry["name"],
+            "up" if entry["ok"] else "DOWN",
+            entry["latency_ms"],
+            entry["url"],
+            "" if entry["ok"] else "  <- " + entry["error"],
+        ))
+
+
+@app.route("/api/services", methods=["GET"])
+def api_services():
+    """On-demand health of every dependency, mirrored into the container log."""
+    report = probe_all_services()
+    log_event("service check requested")
+    log_service_report(report)
+    return jsonify({
+        "ok": True,
+        "services": report,
+        "all_up": all(entry["ok"] for entry in report),
+    })
+
+
 if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "5000"))
     debug = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
+
+    log_event("pepper portal listening on http://%s:%s" % (host, port))
+    log_event("configuration:")
+    log_event("  %-15s %s" % ("ollama", OLLAMA_BASE_URL))
+    log_event("  %-15s %s" % ("chat model", OLLAMA_MODEL))
+    log_event("  %-15s %s" % ("vision model", OLLAMA_VISION_MODEL))
+    log_event("  %-15s %s" % ("speech-to-text", LOCAL_STT_BASE_URL))
+    log_event("dependency check (GET /api/services to repeat):")
+    log_service_report(probe_all_services())
+
     # Keep local Llama requests responsive even while a robot call is waiting
     # on the lab network or Pepper is speaking a longer reply.
     app.run(host=host, port=port, debug=debug, threaded=True)
