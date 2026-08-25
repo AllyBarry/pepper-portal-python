@@ -1,0 +1,21 @@
+# Native-arch build: no `platform:` pin, unlike the portal image whose NAOqi SDK
+# forces amd64. Emulated inference would be pointlessly slow.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    HF_HOME=/models \
+    PEPPER_STT_CACHE_DIR=/models \
+    PEPPER_STT_ENGINE=faster \
+    PEPPER_STT_HOST=0.0.0.0
+
+WORKDIR /app
+
+# faster-whisper decodes audio through PyAV's bundled libav, so no system ffmpeg
+# package is needed here.
+COPY host_services/requirements-container.txt /app/requirements-container.txt
+RUN pip install --no-cache-dir -r /app/requirements-container.txt
+
+COPY host_services/stt_server.py /app/stt_server.py
+
+EXPOSE 8765
+CMD ["python", "/app/stt_server.py"]

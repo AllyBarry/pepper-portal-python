@@ -1,0 +1,3 @@
+# Container backend: CPU inference, linux/amd64 + linux/arm64 wheels.
+# MLX is deliberately absent — Metal is unreachable from a container.
+faster-whisper==1.2.1

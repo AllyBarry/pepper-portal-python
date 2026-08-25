@@ -12,8 +12,12 @@ x-pepper-portal: &pepper-portal
     # The LLM is a sibling container, reached by service name on the Compose network.
     OLLAMA_BASE_URL: http://ollama:11434
     OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+    # Speech-to-text is a sibling container too. Point this at
+    # http://host.docker.internal:8765 to use the host MLX helper instead
+    # (./run_local_services.sh), which is faster on Apple Silicon.
+    LOCAL_STT_BASE_URL: ${LOCAL_STT_BASE_URL:-http://speech-to-text:8765}
   # host.docker.internal is built in on Docker Desktop but absent on Linux hosts;
-  # the local STT helper is still reached that way.
+  # kept so the host MLX helper stays reachable when LOCAL_STT_BASE_URL points at it.
   extra_hosts:
     - "host.docker.internal:host-gateway"
   volumes:
@@ -69,11 +73,40 @@ services:
     entrypoint: ["/bin/sh", "-c", "ollama pull \"$$OLLAMA_MODEL\""]
     restart: "no"
 
+  # CPU Whisper, native arch. Metal is unreachable from a container on macOS
+  # (see the ollama note above), so this trades GPU speed for not needing a
+  # second terminal running ./run_local_services.sh.
+  speech-to-text:
+    image: pepper-portal-stt:latest
+    build:
+      context: .
+      dockerfile: host_services/Dockerfile.stt
+    container_name: pepper_portal_stt
+    environment:
+      PEPPER_STT_ENGINE: faster
+      PEPPER_STT_HOST: 0.0.0.0
+      PEPPER_STT_MODEL: ${PEPPER_STT_MODEL:-tiny}
+      PEPPER_STT_LANGUAGE: ${PEPPER_STT_LANGUAGE:-}
+    volumes:
+      # Model weights download once and survive `docker compose down`.
+      - whisper-models:/models
+    ports:
+      - "127.0.0.1:8765:8765"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8765/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
   pepper-portal:
     <<: *pepper-portal
     container_name: pepper_portal
     depends_on:
       ollama:
+        condition: service_healthy
+      speech-to-text:
         condition: service_healthy
     ports:
       # Host 8080 is commonly taken by SSH tunnels to the cluster (see README),
@@ -97,6 +130,8 @@ services:
         condition: service_completed_successfully
       ollama:
         condition: service_healthy
+      speech-to-text:
+        condition: service_healthy
     ports:
       - "8088:5000"
 
@@ -114,3 +149,4 @@ services:
 
 volumes:
   ollama-models:
+  whisper-models:

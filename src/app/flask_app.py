@@ -105,6 +105,7 @@ LOCAL_STT_BASE_URL = os.environ.get(
 ).rstrip("/")
 LOCAL_STT_TIMEOUT_SECONDS = int(os.environ.get("LOCAL_STT_TIMEOUT_SECONDS", "180"))
 LOCAL_STT_SETUP_URL = "https://pypi.org/project/mlx-whisper/"
+LOCAL_STT_CONTAINER_SETUP_URL = "https://pypi.org/project/faster-whisper/"
 PEPPER_MIC_SAMPLE_RATE = 16000
 PEPPER_MIC_MIN_SECONDS = 2
 PEPPER_MIC_MAX_SECONDS = 45
@@ -791,30 +792,60 @@ def api_local_ai_chat():
     return jsonify({"ok": True, "model": model, "reply": reply})
 
 
+def local_stt_guidance():
+    """Setup/start commands for whichever speech backend LOCAL_STT_BASE_URL targets.
+
+    The two backends are started in completely different ways, so guidance shown
+    when the service is unreachable has to follow the configured URL: a host name
+    means the MLX helper on the Mac, anything else means the Compose service.
+    """
+    host_backed = any(
+        name in LOCAL_STT_BASE_URL
+        for name in ("host.docker.internal", "127.0.0.1", "localhost")
+    )
+    if host_backed:
+        return {
+            "provider": "MLX Whisper",
+            "model": "mlx-community/whisper-tiny",
+            "setup_command": "./setup_local_speech.sh",
+            "start_command": "./run_local_services.sh",
+            "setup_url": LOCAL_STT_SETUP_URL,
+        }
+    return {
+        "provider": "faster-whisper (CPU)",
+        "model": "tiny",
+        "setup_command": "docker compose build speech-to-text",
+        "start_command": "docker compose up -d speech-to-text",
+        "setup_url": LOCAL_STT_CONTAINER_SETUP_URL,
+    }
+
+
 @app.route("/api/local-speech/status", methods=["GET"])
 def api_local_speech_status():
-    """Detect the native macOS MLX Whisper helper running on the Docker host."""
+    """Report on the speech backend, host MLX helper or speech-to-text container."""
+    guidance = local_stt_guidance()
     try:
         status = local_stt_request("/status", timeout=3)
         return jsonify({
             "ok": True,
             "available": bool(status.get("ok") and status.get("available")),
-            "provider": status.get("engine", "MLX Whisper"),
-            "model": status.get("model", "mlx-community/whisper-tiny"),
+            # Prefer what the service reports about itself; guidance is the fallback.
+            "provider": status.get("engine") or guidance["provider"],
+            "model": status.get("model") or guidance["model"],
             "language": status.get("language", "auto"),
-            "setup_url": LOCAL_STT_SETUP_URL,
-            "setup_command": "./setup_local_speech.sh",
-            "start_command": "./run_local_services.sh",
+            "setup_url": guidance["setup_url"],
+            "setup_command": guidance["setup_command"],
+            "start_command": guidance["start_command"],
         })
     except Exception as exc:
         return jsonify({
             "ok": True,
             "available": False,
-            "provider": "MLX Whisper",
-            "model": "mlx-community/whisper-tiny",
-            "setup_url": LOCAL_STT_SETUP_URL,
-            "setup_command": "./setup_local_speech.sh",
-            "start_command": "./run_local_services.sh",
+            "provider": guidance["provider"],
+            "model": guidance["model"],
+            "setup_url": guidance["setup_url"],
+            "setup_command": guidance["setup_command"],
+            "start_command": guidance["start_command"],
             "error": str(exc),
         })
 
@@ -845,8 +876,8 @@ def api_pepper_listen():
         return jsonify({
             "ok": False,
             "error": (
-                "Local speech recognition is not running. Start it with "
-                "./run_local_services.sh on this computer."
+                "Speech recognition is not running. Start it with: %s"
+                % local_stt_guidance()["start_command"]
             ),
         }), 400
     if not stt_status.get("ok") or not stt_status.get("available"):

@@ -185,10 +185,23 @@ That mapping is loopback-only and the portal does not use it.
 Metal, so a containerised Ollama is CPU-only there and noticeably slower than a host install —
 that is the cost of keeping everything in Docker.
 
-### Speech-to-text (still on the host)
+### Speech-to-text
 
-MLX Whisper needs Apple Silicon's Metal GPU, which Docker's Linux VM cannot reach, so this one
-piece still runs natively. Install it once:
+Two interchangeable backends sit behind one HTTP contract (`/health`, `/status`,
+`POST /transcribe`), so the portal cannot tell them apart. `PEPPER_STT_ENGINE` selects one.
+
+**Container (default).** The `speech-to-text` service runs faster-whisper on CPU and starts with
+everything else — no second terminal, no host Python:
+
+```bash
+docker compose up -d
+```
+
+Weights download once into the `whisper-models` volume. The service builds for the native
+architecture (no `platform:` pin), so it also works on the Jetson and Pi targets.
+
+**Host MLX (faster on Apple Silicon).** MLX reaches Metal, which Docker's Linux VM cannot, so it
+stays roughly 4-5x quicker per clip. Install it once:
 
 ```bash
 ./setup_local_speech.sh
@@ -200,9 +213,17 @@ Start the loopback-only helper and keep the terminal open:
 ./run_local_services.sh
 ```
 
-The Whisper model downloads on first use. The portal reaches it at
-`host.docker.internal:8765`; on Linux hosts that name is supplied by the `extra_hosts` entry in
-`docker-compose.yaml`.
+Then point the portal at it — no rebuild needed:
+
+```bash
+LOCAL_STT_BASE_URL=http://host.docker.internal:8765 docker compose up -d
+```
+
+On Linux hosts that name is supplied by the `extra_hosts` entry in `docker-compose.yaml`.
+
+Both bind port 8765, so run one or the other. Measured on an M-series Mac with `whisper-tiny`
+against a six-second clip: container 0.7s per request, host MLX 0.15s once warm (about 13s on the
+first call, which includes model load).
 
 Open the portal, connect to Pepper, confirm the local services are ready, and select
 **Start conversation**. The loop continues until **Stop** is selected.
