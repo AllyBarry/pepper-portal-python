@@ -111,8 +111,13 @@ services:
     volumes:
       # Model weights download once and survive `docker compose down`.
       - whisper-models:/models
+    # Loopback publish is for host-side `curl` debugging only — the portal reaches
+    # this over the Compose network, and the healthcheck runs inside the container.
+    # Override the host port when something else already owns 8765 (a leftover host
+    # STT helper, another stack): PEPPER_STT_HOST_PORT=8766 in .env, or 0 for an
+    # ephemeral port. `docker compose port speech-to-text 8765` reports the result.
     ports:
-      - "127.0.0.1:8765:8765"
+      - "127.0.0.1:${PEPPER_STT_HOST_PORT:-8765}:8765"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8765/health').read()"]
       interval: 10s

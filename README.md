@@ -221,7 +221,23 @@ LOCAL_STT_BASE_URL=http://host.docker.internal:8765 docker compose up -d
 
 On Linux hosts that name is supplied by the `extra_hosts` entry in `docker-compose.yaml`.
 
-Both bind port 8765, so run one or the other. Measured on an M-series Mac with `whisper-tiny`
+Both bind port 8765, so run one or the other. The container's loopback publish is only for
+host-side `curl` debugging — the portal talks to it over the Compose network — so if the port is
+already taken (`failed to bind host port 127.0.0.1:8765`), remap it without affecting anything:
+
+```bash
+echo 'PEPPER_STT_HOST_PORT=8766' >> .env   # or 0 to let Docker pick
+docker compose up -d speech-to-text
+```
+
+Check what already holds it first, though — a stale container is worth removing rather than
+working around:
+
+```bash
+sudo lsof -iTCP:8765 -sTCP:LISTEN    # or: sudo ss -lptn 'sport = :8765'
+docker ps -a --filter publish=8765
+```
+ Measured on an M-series Mac with `whisper-tiny`
 against a six-second clip: container 0.7s per request, host MLX 0.15s once warm (about 13s on the
 first call, which includes model load).
 
