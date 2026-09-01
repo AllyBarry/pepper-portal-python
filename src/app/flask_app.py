@@ -112,6 +112,7 @@ OLLAMA_CONTEXT_LENGTH = max(
     1024,
     min(8192, int(os.environ.get("OLLAMA_CONTEXT_LENGTH", "4096"))),
 )
+LOCAL_STT_BASE_URL_FROM_ENV = "LOCAL_STT_BASE_URL" in os.environ
 LOCAL_STT_BASE_URL = os.environ.get(
     "LOCAL_STT_BASE_URL", "http://host.docker.internal:8765"
 ).rstrip("/")
@@ -1814,7 +1815,8 @@ def probe_service(url, timeout=2):
         ).read()
         ok, error = True, ""
     except Exception as exc:
-        ok, error = False, str(exc)
+        # Some urllib2 failures stringify to "", which says nothing in a log.
+        ok, error = False, ("%s: %s" % (type(exc).__name__, exc)).rstrip(": ")
     return ok, error, int((time.time() - started) * 1000)
 
 
@@ -1866,7 +1868,13 @@ if __name__ == "__main__":
     log_event("  %-15s %s" % ("ollama", OLLAMA_BASE_URL))
     log_event("  %-15s %s" % ("chat model", OLLAMA_MODEL))
     log_event("  %-15s %s" % ("vision model", OLLAMA_VISION_MODEL))
-    log_event("  %-15s %s" % ("speech-to-text", LOCAL_STT_BASE_URL))
+    log_event("  %-15s %s%s" % (
+        "speech-to-text",
+        LOCAL_STT_BASE_URL,
+        "" if LOCAL_STT_BASE_URL_FROM_ENV else
+        "   <- WARNING: built-in default, LOCAL_STT_BASE_URL is unset. If speech-to-text "
+        "runs as a container, recreate this one: docker compose up -d --force-recreate",
+    ))
     log_event("dependency check (GET /api/services to repeat):")
     log_service_report(probe_all_services())
 

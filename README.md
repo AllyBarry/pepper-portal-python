@@ -200,6 +200,19 @@ docker compose up -d
 Weights download once into the `whisper-models` volume. The service builds for the native
 architecture (no `platform:` pin), so it also works on the Jetson and Pi targets.
 
+Check that transcription actually works — not just that the service is up:
+
+```bash
+./check_stt.sh          # synthesise a known phrase and transcribe it
+./check_stt.sh -r 5     # record 5s from your microphone instead
+./check_stt.sh clip.wav # transcribe a file you already have
+```
+
+It exits non-zero with a pointed message if the service is unreachable or returns nothing, so it
+works in a boot check as well as by hand. Note that synthesised speech is a poor accuracy gauge —
+`tiny`, `base` and `small` all mis-hear the same words on it. Use `-r` with real speech before
+concluding the model is too small.
+
 The portal logs its configuration and probes every dependency at startup, and
 `GET /api/services` repeats the check on demand — the result goes to the container log too, so
 `docker compose logs -f pepper-portal` (or `pepper-portal-arm`) is the whole monitoring story:
