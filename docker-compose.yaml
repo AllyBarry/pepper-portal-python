@@ -37,12 +37,14 @@ services:
   # Ollama runs natively for the host CPU/GPU — deliberately NOT the amd64 pin the
   # portal needs, since emulated inference is unusably slow.
   ollama:
-    image: ollama/ollama:latest
+    # Overridable so a host can swap in a purpose-built image (e.g. an L4T/JetPack
+    # build) without editing this file: OLLAMA_IMAGE=... in .env
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
     container_name: pepper_portal_ollama
     environment:
       OLLAMA_MAX_LOADED_MODELS: "1"
       OLLAMA_NUM_PARALLEL: "1"
-      OLLAMA_KEEP_ALIVE: "0"
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-0}
       OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-4096}
     volumes:
       - ollama-models:/root/.ollama
@@ -57,20 +59,18 @@ services:
       retries: 12
       start_period: 20s
     restart: unless-stopped
-    # On a Linux host with NVIDIA drivers + nvidia-container-toolkit, uncomment for
-    # GPU inference. Docker Desktop on macOS cannot pass through Metal — CPU only.
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    # GPU inference, opt-in per machine because the runtime differs by host:
+    #   Jetson / Linux + nvidia-container-toolkit : OLLAMA_RUNTIME=nvidia in .env
+    #   macOS (Docker Desktop cannot reach Metal) : leave unset, stays CPU
+    # `runtime:` is used rather than the deploy.resources.devices block because on
+    # Tegra the NVIDIA runtime is registered but not the default, and the device
+    # request syntax is less reliable there.
+    runtime: ${OLLAMA_RUNTIME:-runc}
 
   # One-off: downloads the chat model into the ollama-models volume. Run it once
   # (and again after changing OLLAMA_MODEL); it exits when the pull completes.
   ollama-pull:
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
     container_name: pepper_portal_ollama_pull
     depends_on:
       ollama:
@@ -83,7 +83,7 @@ services:
 
   # One-off: downloads the visual question-answering model into the same volume.
   ollama-vision-pull:
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
     container_name: pepper_portal_ollama_vision_pull
     depends_on:
       ollama:

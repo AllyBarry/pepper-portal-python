@@ -180,10 +180,31 @@ starting the portal so both agree). The model lives in a named volume and surviv
 Ollama is also published on `127.0.0.1:11434` for debugging (`curl 127.0.0.1:11434/api/tags`).
 That mapping is loopback-only and the portal does not use it.
 
-**GPU.** On a Linux host with NVIDIA drivers and `nvidia-container-toolkit`, uncomment the
-`deploy.resources` block on the `ollama` service. Docker Desktop on macOS cannot pass through
-Metal, so a containerised Ollama is CPU-only there and noticeably slower than a host install —
-that is the cost of keeping everything in Docker.
+**GPU.** Opt in per machine, since the runtime differs by host. On a Jetson (or any Linux host
+with `nvidia-container-toolkit`), add to `.env`:
+
+```bash
+OLLAMA_RUNTIME=nvidia
+OLLAMA_KEEP_ALIVE=5m       # keeping weights resident is worth it on a GPU
+```
+
+then `docker compose up -d --force-recreate ollama`. Confirm it actually took:
+
+```bash
+docker compose exec ollama ollama ps     # PROCESSOR column should say GPU, not CPU
+sudo tegrastats                          # GR3D_FREQ moves during inference
+```
+
+If the default image does not detect the GPU, point `OLLAMA_IMAGE` at an L4T/JetPack build
+matching your L4T version (`cat /etc/nv_tegra_release`) — `ollama-pull` and `ollama-vision-pull`
+follow the same variable.
+
+Docker Desktop on macOS cannot pass through Metal, so leaving these unset keeps the Mac on CPU,
+which is the only thing it can do.
+
+Speech-to-text stays on CPU deliberately: there are no CUDA CTranslate2 wheels for aarch64, and on
+an 8GB unified-memory Jetson a GPU-resident Whisper competes with the LLM for the same RAM. It
+transcribes in well under a second on CPU, so the GPU is better spent on the model you wait for.
 
 ### Speech-to-text
 
