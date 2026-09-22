@@ -4,9 +4,11 @@ ARG PYTHON_VERSION=2.7
 ENV HOME=/home/user
 
 # Install dependencies
+# openssh-client: scp/ssh/ssh-keygen for pushing uploaded media onto Pepper
+# (see README: "Media uploads (SSH key setup)").
 RUN apt-get update && apt-get install -y iproute2 telnet iputils-ping \
     wget gcc make openssl libffi-dev libgdbm-dev libsqlite3-dev libssl-dev zlib1g-dev \
-    libbz2-dev \
+    libbz2-dev openssh-client \
     liblzma-dev pkg-config \
     && apt-get clean
 

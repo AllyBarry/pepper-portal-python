@@ -100,6 +100,18 @@
     .stack { white-space: pre-wrap; padding: 1rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(3,7,14,.55); }
     .notice { padding: .25rem .1rem; border: 0; color: #697892; background: transparent; font-size: .78rem; line-height: 1.5; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .7rem; }
+    .dropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .4rem; padding: 2rem 1rem; border: 1px dashed var(--line-bright); border-radius: 14px; background: rgba(100,229,255,.03); text-align: center; cursor: pointer; transition: background .2s, border-color .2s; }
+    .dropzone.dragover { background: rgba(100,229,255,.1); border-color: var(--cyan); }
+    .dropzone input[type="file"] { display: none; }
+    .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .7rem; }
+    .media-item { display: flex; flex-direction: column; gap: .4rem; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 12px; background: rgba(15,21,35,.5); }
+    .media-item .media-name { font-weight: 600; word-break: break-all; }
+    .media-item .media-meta { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+    .media-item .media-actions { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .2rem; }
+    .badge { display: inline-block; padding: .15rem .5rem; border-radius: 999px; font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .badge.audio { color: #c9e8ff; background: rgba(107,140,255,.14); }
+    .badge.video { color: #e6d4ff; background: rgba(168,124,255,.14); }
+    .badge.pending { color: #ffe6b8; background: rgba(255,198,109,.14); }
 
     .connect-gate {
       position: fixed;
@@ -531,6 +543,24 @@
   </div>
 
   <div class="card workspace-panel" data-view="media" hidden>
+    <h2>Upload</h2>
+    <p class="muted">Drop audio or video here. Audio is copied onto Pepper automatically; video stays on the portal
+      for tablet playback. Reference audio in a scene by its filename alone -- no path needed.</p>
+    <div id="mediaDropzone" class="dropzone" onclick="document.getElementById('mediaFileInput').click()">
+      <strong>Drag &amp; drop a file, or click to browse</strong>
+      <span class="muted mono">Audio: .wav .mp3 .ogg &middot; Video: .mp4 .mov .webm .m4v</span>
+      <input id="mediaFileInput" type="file" multiple accept=".wav,.mp3,.ogg,.mp4,.mov,.webm,.m4v" />
+    </div>
+    <div id="mediaUploadStatus" class="muted" style="margin-top:.5rem"></div>
+    <div class="row" style="margin-top:.75rem">
+      <div>
+        <label>Uploaded media</label>
+        <div id="mediaList" class="media-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card workspace-panel" data-view="media" hidden>
     <h2>Scripts</h2>
     <p class="muted">These are Python scripts in the app's <code>scripts/</code> folder. Click to run. The page will
       pass Pepper IP/port to the script.</p>
@@ -628,6 +658,15 @@
       <div><label for="scenePicker">Saved scenes</label><select id="scenePicker" onchange="loadScene()"><option value="">Select a scene</option></select></div>
       <div style="align-self:end"><button onclick="refreshScenes()">Refresh</button></div>
     </div>
+    <div class="row" style="margin-top:.75rem">
+      <div>
+        <label for="sceneAudioPicker">Insert uploaded audio</label>
+        <select id="sceneAudioPicker"><option value="">Select uploaded audio&hellip;</option></select>
+      </div>
+      <div style="align-self:end"><button onclick="insertAudioReference()">Insert at cursor</button></div>
+    </div>
+    <p class="muted" style="margin-top:.35rem">Inserts <code>{ "audiofile": "name.wav" }</code> at the cursor -- no
+      path needed, it resolves against every uploaded audio file's one location on Pepper.</p>
     <div style="margin-top:.75rem"><label for="sceneSteps">Scene steps</label><textarea id="sceneSteps" rows="10" class="mono" placeholder="[]"></textarea></div>
     <div class="control-strip" style="margin-top:.75rem"><button onclick="saveScene()">Save scene</button><button class="primary-action" onclick="runScene()">Run scene</button></div>
     <div id="sceneStatus" class="muted" style="margin-top:.5rem"></div>
@@ -1875,6 +1914,197 @@
     }
 
     window.addEventListener('load', refreshScenes);
+
+    // ----- Media uploads -----
+    let mediaUploadActive = false;
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    function formatBytes(n) {
+      if (!n && n !== 0) return '';
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function mediaStatusBadge(item) {
+      if (item.kind === 'video') return '<span class="badge video">Video</span>';
+      return item.synced_to_pepper
+        ? '<span class="badge audio">On Pepper</span>'
+        : '<span class="badge pending">Not synced</span>';
+    }
+
+    async function refreshMediaList() {
+      const box = document.getElementById('mediaList');
+      const picker = document.getElementById('sceneAudioPicker');
+      try {
+        const res = await fetch('/api/media');
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Could not load media');
+        const items = data.media || [];
+
+        box.innerHTML = items.length ? '' : '<p class="muted">No uploads yet.</p>';
+        items.forEach(function (item) {
+          const el = document.createElement('div');
+          el.className = 'media-item';
+          el.innerHTML =
+            '<div class="media-name">' + escapeHtml(item.original_filename) + '</div>' +
+            '<div class="muted mono">' + escapeHtml(item.stored_filename) + '</div>' +
+            '<div class="media-meta">' + mediaStatusBadge(item) +
+            '<span class="muted">' + formatBytes(item.size) + '</span></div>' +
+            (item.sync_error ? '<div class="err" style="font-size:.8rem">' + escapeHtml(item.sync_error) + '</div>' : '');
+
+          const actions = document.createElement('div');
+          actions.className = 'media-actions';
+
+          if (item.kind === 'audio') {
+            const playBtn = document.createElement('button');
+            playBtn.textContent = 'Play';
+            playBtn.onclick = function () { playUploadedAudio(item); };
+            actions.appendChild(playBtn);
+
+            if (!item.synced_to_pepper) {
+              const resyncBtn = document.createElement('button');
+              resyncBtn.textContent = 'Resync to Pepper';
+              resyncBtn.onclick = function () { resyncMedia(item.id); };
+              actions.appendChild(resyncBtn);
+            }
+          } else {
+            const previewBtn = document.createElement('button');
+            previewBtn.textContent = 'Preview';
+            previewBtn.onclick = function () { window.open('/media/video/' + encodeURIComponent(item.stored_filename), '_blank'); };
+            actions.appendChild(previewBtn);
+          }
+
+          const delBtn = document.createElement('button');
+          delBtn.className = 'danger-action';
+          delBtn.textContent = 'Delete';
+          delBtn.onclick = function () { deleteMedia(item.id); };
+          actions.appendChild(delBtn);
+
+          el.appendChild(actions);
+          box.appendChild(el);
+        });
+
+        if (picker) {
+          const current = picker.value;
+          picker.innerHTML = '<option value="">Select uploaded audio&hellip;</option>';
+          items.filter(function (m) { return m.kind === 'audio'; }).forEach(function (m) {
+            const opt = document.createElement('option');
+            opt.value = m.stored_filename;
+            opt.textContent = m.stored_filename + (m.synced_to_pepper ? '' : ' (not synced)');
+            picker.appendChild(opt);
+          });
+          picker.value = current;
+        }
+      } catch (e) {
+        box.innerHTML = '<span class="err">' + e.message + '</span>';
+      }
+    }
+
+    async function uploadMediaFiles(fileList) {
+      const status = document.getElementById('mediaUploadStatus');
+      const files = Array.prototype.slice.call(fileList || []);
+      if (!files.length || mediaUploadActive) return;
+      mediaUploadActive = true;
+      const ip = ipInput.value.trim();
+      for (const file of files) {
+        status.textContent = 'Uploading ' + file.name + '…';
+        const form = new FormData();
+        form.append('file', file);
+        if (ip) form.append('ip', ip);
+        try {
+          const res = await fetch('/api/media/upload', { method: 'POST', body: form });
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || 'Upload failed');
+          const entry = data.media;
+          if (entry.kind === 'audio' && !entry.synced_to_pepper) {
+            status.innerHTML = '<span class="err">' + escapeHtml(file.name) + ' uploaded, but not yet on Pepper: ' +
+              escapeHtml(entry.sync_error || 'unknown error') + '</span>';
+          } else {
+            status.innerHTML = '<span class="ok">' + escapeHtml(file.name) + ' uploaded.</span>';
+          }
+          log('Media uploaded: ' + entry.stored_filename + ' (' + entry.kind + ')');
+        } catch (e) {
+          status.innerHTML = '<span class="err">' + escapeHtml(file.name) + ': ' + e.message + '</span>';
+          log('Media upload error: ' + e.message);
+        }
+      }
+      mediaUploadActive = false;
+      refreshMediaList();
+    }
+
+    document.getElementById('mediaFileInput').addEventListener('change', function (e) {
+      uploadMediaFiles(e.target.files);
+      e.target.value = '';
+    });
+
+    (function () {
+      const zone = document.getElementById('mediaDropzone');
+      ['dragenter', 'dragover'].forEach(function (evt) {
+        zone.addEventListener(evt, function (e) { e.preventDefault(); zone.classList.add('dragover'); });
+      });
+      ['dragleave', 'drop'].forEach(function (evt) {
+        zone.addEventListener(evt, function (e) { e.preventDefault(); zone.classList.remove('dragover'); });
+      });
+      zone.addEventListener('drop', function (e) {
+        if (e.dataTransfer && e.dataTransfer.files) uploadMediaFiles(e.dataTransfer.files);
+      });
+    })();
+
+    async function deleteMedia(id) {
+      const status = document.getElementById('mediaUploadStatus');
+      try {
+        const res = await fetch('/api/media/' + encodeURIComponent(id), {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ip: ipInput.value.trim() || undefined })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Delete failed');
+        refreshMediaList();
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
+
+    async function resyncMedia(id) {
+      const status = document.getElementById('mediaUploadStatus');
+      const ip = ipInput.value.trim();
+      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      try {
+        await postJSON('/api/media/' + encodeURIComponent(id) + '/resync', { ip });
+        status.innerHTML = '<span class="ok">Resynced to Pepper.</span>';
+        refreshMediaList();
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
+
+    async function playUploadedAudio(item) {
+      const ip = ipInput.value.trim();
+      const port = (portInput.value.trim() || '9559');
+      if (!ip) { audioStatus.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      try {
+        const res = await postJSON('/api/play-audio', { ip, port: Number(port), path: item.robot_path });
+        log('Playing uploaded audio: ' + item.stored_filename + ' (fileId ' + res.fileId + ')');
+      } catch (e) { log('Play uploaded audio error: ' + e.message); }
+    }
+
+    function insertAudioReference() {
+      const name = document.getElementById('sceneAudioPicker').value;
+      if (!name) return;
+      const textarea = document.getElementById('sceneSteps');
+      const snippet = '{ "audiofile": "' + name + '" }';
+      const start = textarea.selectionStart || 0;
+      const end = textarea.selectionEnd || 0;
+      textarea.value = textarea.value.slice(0, start) + snippet + textarea.value.slice(end);
+      const cursor = start + snippet.length;
+      textarea.focus();
+      textarea.setSelectionRange(cursor, cursor);
+    }
+
+    window.addEventListener('load', refreshMediaList);
 
   </script>
 </body>

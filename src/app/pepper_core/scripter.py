@@ -51,7 +51,7 @@ def _as_list(val):
         return [val]
     return list(val) if isinstance(val, list) else [val]
 
-def _resolve_audio_path(audiofile, audio_source, base_dir):
+def _resolve_audio_path(audiofile, audio_source):
     rel = (audiofile or "").replace("\\", "/")
     if not rel:
         return None
@@ -59,7 +59,14 @@ def _resolve_audio_path(audiofile, audio_source, base_dir):
         return os.path.normpath(rel)
     if audio_source:
         return os.path.normpath(os.path.join(audio_source, rel))
-    return os.path.normpath(os.path.join(base_dir, rel))
+    # No audio_source on the scene: treat it as a bare filename from the
+    # portal's media uploads and resolve it against the one canonical
+    # directory every uploaded audio file lands in on Pepper.
+    try:
+        from .media_store import PEPPER_AUDIO_UPLOAD_DIR
+    except Exception:
+        PEPPER_AUDIO_UPLOAD_DIR = "/data/home/nao/.local/share/wav/uploads/"
+    return os.path.normpath(os.path.join(PEPPER_AUDIO_UPLOAD_DIR, rel))
 
 def _parse_await_policy(row):
     """
@@ -148,7 +155,6 @@ class PepperScripter(object):
         if audio_source:
             _log("INFO", "audio_source: %s" % audio_source, self.verbose)
 
-        base_dir = base if base else (os.path.dirname(os.path.abspath(json_path)) if json_path else os.getcwd())
         executed_any = False
 
         for bi, block in enumerate(data["scene"]):
@@ -194,7 +200,7 @@ class PepperScripter(object):
 
                 # Scalars: async; wait only if overridden by row_flags
                 for val in audio_scalars:
-                    path = _resolve_audio_path(val, audio_source, base_dir)
+                    path = _resolve_audio_path(val, audio_source)
                     if not path:
                         continue
                     _log("INFO", "BLOCK %d ROW %d: AUDIO %s" % (bi, ri, path), self.verbose)
@@ -213,7 +219,7 @@ class PepperScripter(object):
                 for arr in audio_arrays:
                     futures = []
                     for val in arr:
-                        path = _resolve_audio_path(val, audio_source, base_dir)
+                        path = _resolve_audio_path(val, audio_source)
                         if not path:
                             continue
                         _log("INFO", "BLOCK %d ROW %d: AUDIO %s" % (bi, ri, path), self.verbose)

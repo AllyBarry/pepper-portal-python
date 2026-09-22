@@ -4,3 +4,6 @@ pynaoqi-python2.7-*-linux64.tar.gz
 *.tar.gz
 *.run
 .venv-stt/
+# Uploaded media + manifest when running outside Docker (in Docker these
+# live in the pepper-media named volume instead, see docker-compose.yaml).
+/media/

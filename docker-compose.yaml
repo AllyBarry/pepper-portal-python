@@ -26,6 +26,13 @@ x-pepper-portal: &pepper-portal
   volumes:
     - ./src:/home/user/src
     - /tmp/.X11-unix:/tmp/.X11-unix
+    # Persists across rebuilds/restarts so the one-time SSH key setup
+    # (README: "Media uploads (SSH key setup)") only has to happen once per
+    # machine, and so uploaded audio/video + the media manifest survive them
+    # too. Named volumes (not a bind mount) so uploaded binaries never land
+    # in the git working tree.
+    - pepper-ssh-key:/home/user/.ssh
+    - pepper-media:/home/user/media
   stdin_open: true
   tty: true
   # Comes back on its own after a reboot: Docker's own restart policy plus
@@ -176,3 +183,5 @@ services:
 volumes:
   ollama-models:
   whisper-models:
+  pepper-ssh-key:
+  pepper-media:

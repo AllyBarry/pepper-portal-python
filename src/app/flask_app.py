@@ -40,7 +40,7 @@ from functools import wraps
 import itertools
 import threading
 
-from flask import Flask, Response, request, jsonify, render_template
+from flask import Flask, Response, request, jsonify, render_template, send_from_directory
 
 try:
     import qi  # NAOqi Python SDK
@@ -55,15 +55,18 @@ if BASE_DIR not in sys.path:
 
 try:
     from pepper_core import PepperController, PepperScripter
+    from pepper_core import media_store
 except Exception:
     PepperController = None
     PepperScripter = None
+    media_store = None
 
 app = Flask(
     __name__,
     template_folder=os.path.join(BASE_DIR, "templates"),
     static_folder=os.path.join(BASE_DIR, "static"),
 )
+app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MEDIA_MAX_MB", "300")) * 1024 * 1024
 
 SCRIPTS_DIR = os.environ.get("SCRIPTS_DIR") or os.path.join(BASE_DIR, "scripts")
 SCENES_DIR = os.environ.get("SCENES_DIR") or os.path.join(os.path.dirname(BASE_DIR), "scenes")
@@ -1454,6 +1457,64 @@ def api_stop_audio():
     except Exception:
         pass
     return jsonify({"ok": True})
+
+
+# --- Media uploads (drag-and-drop audio/video onto the portal) ---
+# Audio is scp'd onto Pepper into one canonical folder so scenes can
+# reference it by bare filename (see pepper_core.scripter._resolve_audio_path).
+# Video stays on the portal and is served over HTTP for tablet playback.
+
+@app.route("/api/media", methods=["GET"])
+@json_endpoint
+def api_list_media():
+    if media_store is None:
+        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
+    kind = request.args.get("kind") or None
+    return jsonify({"ok": True, "media": media_store.list_media(kind)})
+
+
+@app.route("/api/media/upload", methods=["POST"])
+@json_endpoint
+def api_upload_media():
+    if media_store is None:
+        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
+    uploaded = request.files.get("file")
+    if uploaded is None or not uploaded.filename:
+        return jsonify({"ok": False, "error": "No file provided"}), 400
+    ip = (request.form.get("ip") or "").strip() or None
+    entry = media_store.save_upload(uploaded, uploaded.filename, ip=ip)
+    return jsonify({"ok": True, "media": entry})
+
+
+@app.route("/api/media/<media_id>/resync", methods=["POST"])
+@json_endpoint
+def api_resync_media(media_id):
+    if media_store is None:
+        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
+    data = request.get_json(force=True, silent=True) or {}
+    ip = (data.get("ip") or "").strip()
+    if not ip:
+        return jsonify({"ok": False, "error": "'ip' is required"}), 400
+    entry = media_store.resync_media(media_id, ip)
+    return jsonify({"ok": True, "media": entry})
+
+
+@app.route("/api/media/<media_id>", methods=["DELETE"])
+@json_endpoint
+def api_delete_media(media_id):
+    if media_store is None:
+        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
+    data = request.get_json(force=True, silent=True) or {}
+    ip = (data.get("ip") or "").strip() or None
+    entry = media_store.delete_media(media_id, ip=ip)
+    return jsonify({"ok": True, "media": entry})
+
+
+@app.route("/media/video/<path:filename>", methods=["GET"])
+def api_media_video(filename):
+    if media_store is None or media_store.video_path(filename) is None:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    return send_from_directory(media_store.VIDEO_DIR, filename)
 
 
 @app.route("/api/run-animation", methods=["POST"])

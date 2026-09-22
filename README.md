@@ -28,6 +28,36 @@ Then the media files can be copied into this directory:
 scp <file_name> nao@192.168.1.5:/data/home/nao/.local/share/wav/
 ```
 
+This manual `ssh`/`scp` dance is what the Media tab's drag-and-drop upload (below) now does for you automatically. It's still here as a fallback, and for anything the upload flow doesn't cover.
+
+### Media uploads (drag-and-drop, SSH key setup)
+
+The Media tab's Upload card lets you drag an audio or video file onto the portal:
+
+- **Audio** (`.wav`, `.mp3`, `.ogg`) is `scp`'d by the portal container into one fixed folder on Pepper: `/data/home/nao/.local/share/wav/uploads/`. Every scene in the Scripts editor can then reference it by bare filename (e.g. `{"audiofile": "greeting.wav"}`) — no path needed, and no need to know it lives under `.../wav/uploads/`. Use the "Insert audio" picker in the Scenes card to add a reference without typing the filename either.
+- **Video** (`.mp4`, `.mov`, `.webm`, `.m4v`) is *not* copied to Pepper — it's stored on the portal and served over HTTP, since tablet playback (`ALTabletService.showWebview`) just points Pepper's tablet browser at a URL. Video playback itself (wiring up the "show on tablet" action) is still a follow-up, not wired into the scripting editor yet.
+- Everything uploaded is tracked in one manifest so the portal — and the scene editor's picker — always knows what exists, without re-deriving it from Pepper's filesystem on every load.
+
+The `scp` part needs a passwordless SSH key from the portal container to Pepper (the container can't sit at an interactive password prompt). **One-time setup, once per machine running the portal** (laptop, Jetson, Pi — each has its own key):
+
+```bash
+./install/setup_pepper_ssh_key.sh 192.168.1.5
+```
+
+This generates an ed25519 keypair inside the `pepper-ssh-key` Docker volume (skipped if one is already there) and installs the public half on Pepper via `ssh-copy-id`, prompting for the `nao` password one last time. The volume persists across container rebuilds and restarts, so this only needs to run again if:
+- you're setting up a **new machine** (a different laptop, a fresh Jetson/Pi image), or
+- Pepper itself was **re-imaged/reset** and lost its `authorized_keys`, or
+- you deliberately removed the `pepper-ssh-key` volume (`docker volume rm pepper-portal-python_pepper-ssh-key`).
+
+To regenerate the key itself (not just reinstall it) on a machine that already has one, remove the volume first, then re-run the script:
+```bash
+docker compose down
+docker volume rm pepper-portal-python_pepper-ssh-key   # volume name may be prefixed by your compose project name; `docker volume ls` to check
+./install/setup_pepper_ssh_key.sh 192.168.1.5
+```
+
+Uploaded media and the manifest live in the `pepper-media` Docker volume, separate from the SSH key, so they survive independently.
+
 ## Always-On Deployment (Jetson, Raspberry Pi, etc.)
 
 For a machine that stays on and should just come back up after every reboot
