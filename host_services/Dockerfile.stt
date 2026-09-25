@@ -10,8 +10,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# faster-whisper decodes audio through PyAV's bundled libav, so no system ffmpeg
-# package is needed here.
+# alsa-utils gives us `arecord` for pulling audio straight off Jetson-attached
+# USB mics; faster-whisper decodes audio through PyAV's bundled libav, so no
+# system ffmpeg package is needed here.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends alsa-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY host_services/requirements-container.txt /app/requirements-container.txt
 RUN pip install --no-cache-dir -r /app/requirements-container.txt
 

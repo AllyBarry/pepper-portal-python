@@ -17,10 +17,19 @@ PEPPER_STT_ENGINE picks one; the default probes for MLX and falls back.
 import base64
 import json
 import os
+import re
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# arecord is optional: the STT server still handles pre-recorded WAVs even when
+# /dev/snd isn't mapped (dev machines without a mic).
+ARECORD_PATH = shutil.which("arecord")
+CAPTURE_MAX_SECONDS = 60
+CAPTURE_SAMPLE_RATE = 16000  # what whisper expects
 
 HOST = os.environ.get("PEPPER_STT_HOST", "127.0.0.1")
 PORT = int(os.environ.get("PEPPER_STT_PORT", "8765"))
@@ -123,6 +132,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == "/devices":
+            self.respond(200, {
+                "ok": True,
+                "arecord_available": bool(ARECORD_PATH),
+                "devices": list_capture_devices(),
+            })
+            return
         if self.path not in ("/health", "/status"):
             self.respond(404, {"ok": False, "error": "Not found"})
             return
@@ -134,11 +150,15 @@ class Handler(BaseHTTPRequestHandler):
                 "engine": ENGINE.name if ENGINE else "none",
                 "model": ENGINE.model if ENGINE else "",
                 "language": LANGUAGE or "auto",
+                "arecord_available": bool(ARECORD_PATH),
                 "error": IMPORT_ERROR,
             },
         )
 
     def do_POST(self):
+        if self.path == "/capture":
+            self._handle_capture()
+            return
         if self.path != "/transcribe":
             self.respond(404, {"ok": False, "error": "Not found"})
             return
@@ -185,6 +205,144 @@ class Handler(BaseHTTPRequestHandler):
                     os.unlink(temp_path)
                 except OSError:
                     pass
+
+    def _handle_capture(self):
+        if ENGINE is None:
+            self.respond(503, {"ok": False, "error": IMPORT_ERROR or "no speech engine installed"})
+            return
+        if not ARECORD_PATH:
+            self.respond(503, {
+                "ok": False,
+                "error": "arecord not installed. Rebuild speech-to-text: docker compose build speech-to-text",
+            })
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(size).decode("utf-8")) if size else {}
+            device = (payload.get("device") or "default").strip() or "default"
+            duration = float(payload.get("duration_seconds") or 5)
+            if duration <= 0 or duration > CAPTURE_MAX_SECONDS:
+                raise ValueError(
+                    "duration_seconds must be between 0 and %d" % CAPTURE_MAX_SECONDS
+                )
+        except Exception as exc:
+            self.respond(400, {"ok": False, "error": str(exc)})
+            return
+
+        temp_path = None
+        started = time.time()
+        try:
+            with tempfile.NamedTemporaryFile(prefix="jetson-mic-", suffix=".wav", delete=False) as temp:
+                temp_path = temp.name
+            _run_arecord(device, duration, temp_path)
+            capture_finished = time.time()
+            with _transcription_lock:
+                transcript, detected = ENGINE.transcribe(temp_path)
+            wav_bytes = b""
+            try:
+                with open(temp_path, "rb") as fh:
+                    wav_bytes = fh.read()
+            except Exception:
+                pass
+            self.respond(
+                200,
+                {
+                    "ok": True,
+                    "transcript": transcript,
+                    "language": detected or LANGUAGE or "unknown",
+                    "model": ENGINE.model,
+                    "device": device,
+                    "capture_seconds": round(capture_finished - started, 3),
+                    "transcription_seconds": round(time.time() - capture_finished, 3),
+                    "audio_wav_base64": base64.b64encode(wav_bytes).decode("ascii") if wav_bytes else "",
+                },
+            )
+        except Exception as exc:
+            self.respond(500, {"ok": False, "error": str(exc)})
+        finally:
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+
+
+_ARECORD_LINE_RE = re.compile(
+    r"^card (?P<card>\d+): (?P<card_id>\S+) \[(?P<card_name>[^\]]+)\],"
+    r" device (?P<device>\d+): (?P<device_id>.+?) \[(?P<device_name>[^\]]*)\]"
+)
+
+
+def list_capture_devices():
+    """Return `arecord -l` parsed into a list the UI can render.
+
+    Empty list is meaningful: the container can't see any mic (no /dev/snd
+    mapping, no USB mic plugged in, or arecord missing). The status endpoint
+    already reports arecord_available so the UI can nudge the operator.
+    """
+    if not ARECORD_PATH:
+        return []
+    try:
+        proc = subprocess.run(
+            [ARECORD_PATH, "-l"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        return []
+    devices = []
+    for line in proc.stdout.decode("utf-8", "replace").splitlines():
+        match = _ARECORD_LINE_RE.match(line)
+        if not match:
+            continue
+        card = int(match.group("card"))
+        device = int(match.group("device"))
+        devices.append({
+            "hw": "plughw:%d,%d" % (card, device),
+            "card": card,
+            "device": device,
+            "card_id": match.group("card_id"),
+            "card_name": match.group("card_name"),
+            "device_name": match.group("device_name") or match.group("device_id"),
+            "label": "%s - %s (hw %d,%d)" % (
+                match.group("card_name"),
+                match.group("device_name") or match.group("device_id"),
+                card,
+                device,
+            ),
+        })
+    return devices
+
+
+def _run_arecord(device, duration_seconds, out_path):
+    """Blocking capture into `out_path`. Raises RuntimeError on failure."""
+    if not ARECORD_PATH:
+        raise RuntimeError("arecord is not installed in this container")
+    cmd = [
+        ARECORD_PATH,
+        "-D", device,
+        "-f", "S16_LE",
+        "-c", "1",
+        "-r", str(CAPTURE_SAMPLE_RATE),
+        "-t", "wav",
+        "-d", str(int(round(duration_seconds))),
+        "-q",
+        out_path,
+    ]
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=duration_seconds + 15,
+        check=False,
+    )
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(
+            "arecord failed (%d) on %s: %s" % (proc.returncode, device, err or "no stderr")
+        )
 
 
 if __name__ == "__main__":

@@ -1454,6 +1454,85 @@ def api_local_speech_status():
         })
 
 
+@app.route("/api/local-mic-devices", methods=["GET"])
+def api_local_mic_devices():
+    """List ALSA capture devices visible to the speech-to-text container."""
+    try:
+        result = local_stt_request("/devices", timeout=5)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc), "devices": []})
+    return jsonify(result)
+
+
+@app.route("/api/local-mic-listen", methods=["POST"])
+@json_endpoint
+def api_local_mic_listen():
+    """Record a fixed-length clip from a Jetson-attached mic and transcribe."""
+    data = request.get_json(force=True) or {}
+    device = (data.get("device") or "default").strip() or "default"
+    try:
+        duration_seconds = int(data.get("duration_seconds", 5))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "duration_seconds must be an integer"}), 400
+    if duration_seconds < 1 or duration_seconds > 60:
+        return jsonify({"ok": False, "error": "duration_seconds must be 1..60"}), 400
+
+    result = local_stt_request(
+        "/capture",
+        {"device": device, "duration_seconds": duration_seconds},
+        timeout=duration_seconds + LOCAL_STT_TIMEOUT_SECONDS,
+    )
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error") or "Local mic capture failed")
+    # Strip the raw WAV before echoing back: the browser only wants the transcript
+    # and the audio can be tens of KB per second.
+    result.pop("audio_wav_base64", None)
+    return jsonify(result)
+
+
+@app.route("/api/local-transcribe", methods=["POST"])
+@json_endpoint
+def api_local_transcribe():
+    """Transcribe a WAV recorded in the browser - no Pepper needed.
+
+    Lets the operator smoke-test the mic and STT container from any device
+    that reaches the portal, using getUserMedia in the browser.
+    """
+    data = request.get_json(force=True) or {}
+    audio_b64 = (data.get("audio_wav_base64") or "").strip()
+    if not audio_b64:
+        return jsonify({"ok": False, "error": "Missing 'audio_wav_base64'"}), 400
+
+    try:
+        stt_status = local_stt_request("/status", timeout=3)
+    except Exception:
+        return jsonify({
+            "ok": False,
+            "error": (
+                "Speech recognition is not running. Start it with: %s"
+                % local_stt_guidance()["start_command"]
+            ),
+        }), 400
+    if not stt_status.get("ok") or not stt_status.get("available"):
+        return jsonify({"ok": False, "error": "Local speech recognition is not ready"}), 400
+
+    result = local_stt_request(
+        "/transcribe",
+        {"audio_wav_base64": audio_b64},
+        timeout=LOCAL_STT_TIMEOUT_SECONDS,
+    )
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error") or "Speech recognition failed")
+
+    return jsonify({
+        "ok": True,
+        "transcript": (result.get("transcript") or "").strip(),
+        "language": result.get("language"),
+        "model": result.get("model"),
+        "transcription_seconds": result.get("elapsed_seconds"),
+    })
+
+
 @app.route("/api/pepper-listen", methods=["POST"])
 @json_endpoint
 def api_pepper_listen():

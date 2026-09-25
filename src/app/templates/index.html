@@ -504,10 +504,24 @@
           <div class="composer-actions">
             <div>
               <button id="btnPepperListen" onclick="listenThroughPepper()" disabled>Listen through Pepper</button>
-              <button id="btnListenStart" onclick="startListening()">Use Mac mic</button>
+              <button id="btnListenStart" onclick="startListening()">Use browser mic</button>
               <button id="btnListenStop" onclick="stopListening()" disabled>Stop mic</button>
+              <button id="btnJetsonListen" onclick="listenThroughJetson()" disabled>Use Jetson mic</button>
             </div>
             <button id="btnSendToLlama" class="primary-action" onclick="sendToLlama()" disabled>Send to Llama →</button>
+          </div>
+          <div class="jetson-mic-controls" style="margin-top:.4rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+            <label for="jetsonMicDevice" style="margin:0">Jetson mic:</label>
+            <select id="jetsonMicDevice" style="min-width:14rem"><option value="">Loading…</option></select>
+            <label for="jetsonMicDuration" style="margin:0">Duration</label>
+            <select id="jetsonMicDuration">
+              <option value="3">3 s</option>
+              <option value="5" selected>5 s</option>
+              <option value="10">10 s</option>
+              <option value="15">15 s</option>
+              <option value="30">30 s</option>
+            </select>
+            <button class="ghost-button" id="btnRefreshJetsonMics" onclick="refreshJetsonMics()">Refresh</button>
           </div>
         </div>
         <div id="speechStatus" class="muted" style="margin-top:.65rem" role="status">Microphone is idle.</div>
@@ -539,7 +553,7 @@
         <a id="localSpeechSetup" href="https://pypi.org/project/mlx-whisper/" target="_blank" rel="noopener" style="display:none">MLX Whisper setup</a>
         <div class="service-indicator"><div id="localSpeechStatus" class="muted" role="status">Checking local speech recognition…</div></div>
         <div class="conversation-options">
-          <label><input id="autoSendSpeech" type="checkbox" style="width:auto"> Send Mac microphone speech automatically</label>
+          <label><input id="autoSendSpeech" type="checkbox" style="width:auto" checked> Send transcribed speech to Llama automatically</label>
           <label><input id="pepperSpeaks" type="checkbox" style="width:auto" checked> Pepper speaks Llama's reply when connected</label>
           <label><input id="pepperGestures" type="checkbox" style="width:auto" checked> Allow occasional gestures and direct gesture requests</label>
         </div>
@@ -1237,6 +1251,22 @@
       document.getElementById('btnPepperListen').disabled = !localSpeechReady || !pepperConnected || llamaRequestActive || pepperListenActive || continuousConversationActive;
       document.getElementById('btnConversationStart').disabled = !conversationReady || llamaRequestActive || pepperListenActive || continuousConversationActive;
       document.getElementById('btnConversationStop').disabled = !continuousConversationActive;
+      const listenStart = document.getElementById('btnListenStart');
+      if (listenStart && !micRecorder) {
+        listenStart.disabled = !BrowserMicSupported || !localSpeechReady;
+        listenStart.title = !BrowserMicSupported
+          ? 'Browser blocks the microphone on insecure origins. Open the portal at http://localhost:8081 (SSH tunnel or Jetson desktop).'
+          : (!localSpeechReady ? 'Speech-to-text container is not ready yet.' : '');
+      }
+      const jetsonBtn = document.getElementById('btnJetsonListen');
+      const jetsonSel = document.getElementById('jetsonMicDevice');
+      if (jetsonBtn && jetsonSel) {
+        const hasDevice = !!jetsonSel.value;
+        jetsonBtn.disabled = jetsonMicRequestActive || !localSpeechReady || !hasDevice;
+        jetsonBtn.title = !localSpeechReady
+          ? 'Speech-to-text container is not ready yet.'
+          : (!hasDevice ? 'Pick a Jetson mic device from the dropdown.' : '');
+      }
       updateVisionQuestionControls();
     }
 
@@ -1425,67 +1455,261 @@
       }
     }
 
-    function createSpeechRecognition() {
-      if (!BrowserSpeechRecognition) return null;
-      const recognition = new BrowserSpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = navigator.language || 'en-US';
+    // Records browser mic audio and ships it to the local STT container.
+    // Works on any browser that supports getUserMedia + AudioContext, so mic
+    // testing no longer needs Pepper or the Google-cloud Web Speech API.
+    const BrowserMicSupported =
+      !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext));
+    const MIC_TARGET_SAMPLE_RATE = 16000;
+    let micRecorder = null;
 
-      recognition.onstart = function () {
-        document.getElementById('btnListenStart').disabled = true;
-        document.getElementById('btnListenStop').disabled = false;
-        speechStatus.innerHTML = '<span class="listening">Listening… speak now.</span>';
-        interimSpeech.textContent = '';
+    function floatTo16BitPCM(float32) {
+      const buffer = new ArrayBuffer(float32.length * 2);
+      const view = new DataView(buffer);
+      for (let i = 0; i < float32.length; i += 1) {
+        let s = Math.max(-1, Math.min(1, float32[i]));
+        view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      }
+      return new Uint8Array(buffer);
+    }
+
+    function downsampleToMono16k(float32, sourceRate) {
+      if (sourceRate === MIC_TARGET_SAMPLE_RATE) return float32;
+      const ratio = sourceRate / MIC_TARGET_SAMPLE_RATE;
+      const outLength = Math.floor(float32.length / ratio);
+      const out = new Float32Array(outLength);
+      for (let i = 0; i < outLength; i += 1) {
+        const start = Math.floor(i * ratio);
+        const end = Math.min(float32.length, Math.floor((i + 1) * ratio));
+        let sum = 0;
+        for (let j = start; j < end; j += 1) sum += float32[j];
+        out[i] = sum / Math.max(1, end - start);
+      }
+      return out;
+    }
+
+    function buildWavBlob(pcm16, sampleRate) {
+      const header = new ArrayBuffer(44);
+      const view = new DataView(header);
+      const dataSize = pcm16.length;
+      const writeAscii = function (offset, text) {
+        for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
       };
-      recognition.onresult = function (event) {
-        let interim = '';
-        let finalText = '';
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const text = event.results[i][0].transcript;
-          if (event.results[i].isFinal) finalText += text;
-          else interim += text;
+      writeAscii(0, 'RIFF');
+      view.setUint32(4, 36 + dataSize, true);
+      writeAscii(8, 'WAVE');
+      writeAscii(12, 'fmt ');
+      view.setUint32(16, 16, true);            // PCM chunk size
+      view.setUint16(20, 1, true);             // PCM format
+      view.setUint16(22, 1, true);             // mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true); // byte rate
+      view.setUint16(32, 2, true);             // block align
+      view.setUint16(34, 16, true);            // bits per sample
+      writeAscii(36, 'data');
+      view.setUint32(40, dataSize, true);
+      return new Blob([header, pcm16], { type: 'audio/wav' });
+    }
+
+    function blobToBase64(blob) {
+      return new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onerror = function () { reject(reader.error || new Error('Read failed')); };
+        reader.onload = function () {
+          const dataUrl = String(reader.result || '');
+          const comma = dataUrl.indexOf(',');
+          resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+        };
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    async function startBrowserMic() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+      });
+      const AudioCtor = window.AudioContext || window.webkitAudioContext;
+      const context = new AudioCtor();
+      const source = context.createMediaStreamSource(stream);
+      const processor = context.createScriptProcessor(4096, 1, 1);
+      const chunks = [];
+      let sampleCount = 0;
+      processor.onaudioprocess = function (event) {
+        const input = event.inputBuffer.getChannelData(0);
+        chunks.push(new Float32Array(input));
+        sampleCount += input.length;
+      };
+      source.connect(processor);
+      processor.connect(context.destination);
+      return {
+        stop: async function () {
+          try { processor.disconnect(); } catch (e) {}
+          try { source.disconnect(); } catch (e) {}
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          const merged = new Float32Array(sampleCount);
+          let offset = 0;
+          chunks.forEach(function (c) { merged.set(c, offset); offset += c.length; });
+          const durationSeconds = sampleCount / context.sampleRate;
+          const resampled = downsampleToMono16k(merged, context.sampleRate);
+          const pcm16 = floatTo16BitPCM(resampled);
+          try { await context.close(); } catch (e) {}
+          return { wav: buildWavBlob(pcm16, MIC_TARGET_SAMPLE_RATE), durationSeconds: durationSeconds };
         }
-        if (finalText.trim()) {
-          heardSpeech.value = (heardSpeech.value + ' ' + finalText).trim();
-          speechStatus.innerHTML = '<span class="ok">Speech captured. Review the transcript, then send it to Llama.</span>';
+      };
+    }
+
+    async function startListening() {
+      if (!BrowserMicSupported) {
+        speechStatus.innerHTML = '<span class="err">This browser does not expose microphone access. Try Chrome or Firefox on http://localhost.</span>';
+        return;
+      }
+      if (!localSpeechReady) {
+        speechStatus.innerHTML = '<span class="err">Local speech-to-text container is not ready. Start it with: docker compose up -d speech-to-text</span>';
+        return;
+      }
+      if (micRecorder) return;
+      heardSpeech.value = '';
+      interimSpeech.textContent = '';
+      try {
+        micRecorder = await startBrowserMic();
+      } catch (e) {
+        speechStatus.innerHTML = '<span class="err">Could not open the microphone: ' + e.message + '</span>';
+        log('Browser mic error: ' + e.message);
+        micRecorder = null;
+        return;
+      }
+      document.getElementById('btnListenStart').disabled = true;
+      document.getElementById('btnListenStop').disabled = false;
+      speechStatus.innerHTML = '<span class="listening">Listening… speak now, then press Stop mic.</span>';
+      updateConversationControls();
+    }
+
+    // ----- Jetson mic path (arecord inside speech-to-text container) -----
+    let jetsonMicRequestActive = false;
+
+    async function refreshJetsonMics() {
+      const select = document.getElementById('jetsonMicDevice');
+      const listenBtn = document.getElementById('btnJetsonListen');
+      select.innerHTML = '<option value="">Loading…</option>';
+      listenBtn.disabled = true;
+      try {
+        const response = await fetch('/api/local-mic-devices', { cache: 'no-store' });
+        const data = await response.json();
+        select.innerHTML = '';
+        if (!data.ok) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'STT container not reachable';
+          select.appendChild(opt);
+          return;
         }
-        interimSpeech.textContent = interim ? 'Hearing: ' + interim : '';
-        updateConversationControls();
-      };
-      recognition.onerror = function (event) {
-        speechStatus.innerHTML = '<span class="err">Microphone error: ' + event.error + '</span>';
-        log('Speech recognition error: ' + event.error);
-      };
-      recognition.onend = function () {
-        document.getElementById('btnListenStart').disabled = false;
-        document.getElementById('btnListenStop').disabled = true;
-        interimSpeech.textContent = '';
+        if (!data.arecord_available) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'arecord missing — rebuild speech-to-text';
+          select.appendChild(opt);
+          return;
+        }
+        if (!data.devices || !data.devices.length) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = 'No capture devices detected';
+          select.appendChild(opt);
+          return;
+        }
+        data.devices.forEach(function (dev) {
+          const opt = document.createElement('option');
+          opt.value = dev.hw;
+          opt.textContent = dev.label;
+          select.appendChild(opt);
+        });
+        listenBtn.disabled = jetsonMicRequestActive || !localSpeechReady;
+      } catch (e) {
+        select.innerHTML = '<option value="">' + e.message + '</option>';
+      }
+    }
+
+    async function listenThroughJetson() {
+      if (jetsonMicRequestActive) return;
+      const device = document.getElementById('jetsonMicDevice').value;
+      if (!device) {
+        speechStatus.innerHTML = '<span class="err">Pick a Jetson mic device first.</span>';
+        return;
+      }
+      const duration = Number(document.getElementById('jetsonMicDuration').value || '5');
+      jetsonMicRequestActive = true;
+      heardSpeech.value = '';
+      interimSpeech.textContent = '';
+      const listenBtn = document.getElementById('btnJetsonListen');
+      listenBtn.disabled = true;
+      speechStatus.innerHTML = '<span class="listening">Recording ' + duration + 's from the Jetson mic — speak now.</span>';
+      updateConversationControls();
+      try {
+        const result = await postJSON('/api/local-mic-listen', {
+          device: device,
+          duration_seconds: duration,
+        }, (duration + 60) * 1000);
+        heardSpeech.value = (result.transcript || '').trim();
+        if (heardSpeech.value) {
+          speechStatus.innerHTML = '<span class="ok">Heard from Jetson mic: “' + heardSpeech.value + '” (' + result.model + ' in ' + result.transcription_seconds + 's).</span>';
+          log('Jetson mic transcript captured on ' + device);
+        } else {
+          speechStatus.innerHTML = '<span class="err">Nothing was transcribed from ' + device + '. Try a different device, longer duration, or check mic levels with: alsamixer -c ' + device.split(':')[1].split(',')[0] + '</span>';
+        }
+      } catch (e) {
+        speechStatus.innerHTML = '<span class="err">Jetson mic error: ' + e.message + '</span>';
+        log('Jetson mic error: ' + e.message);
+      } finally {
+        jetsonMicRequestActive = false;
+        listenBtn.disabled = !localSpeechReady;
         updateConversationControls();
         if (heardSpeech.value.trim() && document.getElementById('autoSendSpeech').checked && localAiReady) {
           sendToLlama();
         }
-      };
-      return recognition;
+      }
     }
 
-    function startListening() {
-      if (!BrowserSpeechRecognition) {
-        speechStatus.innerHTML = '<span class="err">Speech recognition is not available in this browser. Type your message instead.</span>';
+    async function stopListening() {
+      if (!micRecorder) return;
+      const recorder = micRecorder;
+      micRecorder = null;
+      document.getElementById('btnListenStop').disabled = true;
+      speechStatus.textContent = 'Transcribing locally…';
+      let capture;
+      try {
+        capture = await recorder.stop();
+      } catch (e) {
+        speechStatus.innerHTML = '<span class="err">Recording failed: ' + e.message + '</span>';
+        document.getElementById('btnListenStart').disabled = false;
+        updateConversationControls();
         return;
       }
-      heardSpeech.value = '';
-      updateConversationControls();
-      speechRecognition = createSpeechRecognition();
-      try {
-        speechRecognition.start();
-      } catch (e) {
-        speechStatus.innerHTML = '<span class="err">Could not start the microphone: ' + e.message + '</span>';
+      if (!capture.durationSeconds || capture.durationSeconds < 0.3) {
+        speechStatus.innerHTML = '<span class="err">Recording was too short — hold the button for at least half a second.</span>';
+        document.getElementById('btnListenStart').disabled = false;
+        updateConversationControls();
+        return;
       }
-    }
-
-    function stopListening() {
-      if (speechRecognition) speechRecognition.stop();
+      try {
+        const base64Audio = await blobToBase64(capture.wav);
+        const result = await postJSON('/api/local-transcribe', { audio_wav_base64: base64Audio }, 180000);
+        heardSpeech.value = (result.transcript || '').trim();
+        if (heardSpeech.value) {
+          speechStatus.innerHTML = '<span class="ok">Heard: “' + heardSpeech.value + '” (' + result.model + ' in ' + result.transcription_seconds + 's).</span>';
+          log('Browser mic transcript captured');
+        } else {
+          speechStatus.innerHTML = '<span class="err">Nothing was transcribed — check the mic level or try again.</span>';
+        }
+      } catch (e) {
+        speechStatus.innerHTML = '<span class="err">Transcription failed: ' + e.message + '</span>';
+        log('Browser mic transcription error: ' + e.message);
+      } finally {
+        document.getElementById('btnListenStart').disabled = false;
+        updateConversationControls();
+        if (heardSpeech.value.trim() && document.getElementById('autoSendSpeech').checked && localAiReady) {
+          sendToLlama();
+        }
+      }
     }
 
     async function sendToLlama(conversationTurn) {
@@ -1575,9 +1799,12 @@
       checkLocalAi();
       checkLocalVision();
       checkLocalSpeech();
-      if (!BrowserSpeechRecognition) {
+      refreshJetsonMics();
+      const jetsonSel = document.getElementById('jetsonMicDevice');
+      if (jetsonSel) jetsonSel.addEventListener('change', updateConversationControls);
+      if (!BrowserMicSupported) {
         document.getElementById('btnListenStart').disabled = true;
-        speechStatus.textContent = 'This browser cannot transcribe microphone speech; typing still works.';
+        speechStatus.textContent = 'This browser cannot access the microphone; typing still works. The Jetson mic path below still works from any browser.';
       }
     });
 
