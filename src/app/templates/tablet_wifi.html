@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Pepper &middot; Wi-Fi</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%; margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 50% 10%, #131b30 0%, #070a12 70%);
+      color: #f5f8ff;
+    }
+    body { min-height: 100vh; padding: 1.5rem clamp(1rem, 4vw, 3rem) 2.5rem; }
+    header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.25rem; }
+    a.back {
+      display: inline-flex; align-items: center; gap: .4rem; padding: .6rem 1rem;
+      border: 1px solid rgba(154,177,221,.2); border-radius: 12px; color: #cdd8ee; text-decoration: none;
+    }
+    h1 { font-size: 1.6rem; margin: 0; }
+    #refreshBtn {
+      margin-left: auto; padding: .6rem 1.1rem; border-radius: 12px; border: 1px solid rgba(100,229,255,.3);
+      background: rgba(100,229,255,.08); color: #cdeeff; font-size: 1rem;
+    }
+    #status { color: #91a0bd; margin-bottom: 1rem; min-height: 1.4rem; }
+    #status.ok { color: #64f5b1; }
+    #status.err { color: #ff6b83; }
+    .networks { display: grid; gap: .7rem; max-width: 640px; }
+    .net-row {
+      display: flex; align-items: center; gap: .9rem; padding: 1rem 1.1rem; border-radius: 16px;
+      border: 1px solid rgba(154,177,221,.16); background: rgba(18,24,40,.7); cursor: pointer;
+    }
+    .net-row.active { border-color: rgba(100,245,177,.5); background: rgba(100,245,177,.08); }
+    .net-row .ssid { font-size: 1.15rem; font-weight: 700; flex: 1; text-align: left; }
+    .net-row .meta { color: #91a0bd; font-size: .95rem; display: flex; align-items: center; gap: .5rem; }
+    .connect-panel {
+      margin-top: 1.25rem; padding: 1.25rem; border-radius: 16px; border: 1px solid rgba(154,177,221,.16);
+      background: rgba(18,24,40,.7); max-width: 640px; display: none;
+    }
+    .connect-panel.open { display: block; }
+    .connect-panel h2 { margin: 0 0 .8rem; font-size: 1.2rem; }
+    .connect-panel input {
+      width: 100%; padding: .8rem .9rem; border-radius: 12px; border: 1px solid rgba(154,177,221,.25);
+      background: rgba(5,9,18,.5); color: #f5f8ff; font-size: 1.05rem; margin-bottom: .8rem;
+    }
+    .connect-actions { display: flex; gap: .7rem; }
+    button {
+      padding: .8rem 1.2rem; border-radius: 12px; border: 1px solid rgba(154,177,221,.25);
+      background: rgba(30,38,60,.8); color: #f5f8ff; font-size: 1.02rem;
+    }
+    button.primary { border-color: rgba(100,229,255,.4); background: linear-gradient(135deg, #64e5ff, #6b8cff); color: #061018; font-weight: 700; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <a class="back" href="/tablet">&larr; Back</a>
+    <h1>Wi-Fi Setup</h1>
+    <button id="refreshBtn" onclick="loadNetworks()">Rescan</button>
+  </header>
+  <div id="status">Loading networks&hellip;</div>
+  <div id="networks" class="networks"></div>
+
+  <div id="connectPanel" class="connect-panel">
+    <h2 id="connectTitle">Connect</h2>
+    <input id="password" type="password" placeholder="Password" autocomplete="off" />
+    <div class="connect-actions">
+      <button class="primary" onclick="doConnect()">Connect</button>
+      <button onclick="closeConnectPanel()">Cancel</button>
+    </div>
+  </div>
+
+  <script>
+    let selected = null;
+
+    function setStatus(text, cls) {
+      const el = document.getElementById('status');
+      el.textContent = text;
+      el.className = cls || '';
+    }
+
+    async function loadNetworks() {
+      setStatus('Scanning…');
+      const box = document.getElementById('networks');
+      box.innerHTML = '';
+      try {
+        const res = await fetch('/api/wifi/networks');
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Scan failed');
+        const nets = data.networks || [];
+        if (!nets.length) { setStatus('No networks found.'); return; }
+        setStatus(nets.length + ' network(s) found.', 'ok');
+        nets.forEach(function (net) {
+          const row = document.createElement('div');
+          row.className = 'net-row' + (net.in_use ? ' active' : '');
+          row.innerHTML =
+            '<span class="ssid"></span>' +
+            '<span class="meta">' + (net.secure ? '&#128274; ' : '') + net.signal + '%' +
+            (net.in_use ? ' &middot; connected' : '') + '</span>';
+          row.querySelector('.ssid').textContent = net.ssid;
+          row.onclick = function () { openConnectPanel(net); };
+          box.appendChild(row);
+        });
+      } catch (e) {
+        setStatus(e.message, 'err');
+      }
+    }
+
+    function openConnectPanel(net) {
+      selected = net;
+      document.getElementById('connectTitle').textContent = 'Connect to ' + net.ssid;
+      document.getElementById('password').value = '';
+      document.getElementById('connectPanel').classList.add('open');
+    }
+
+    function closeConnectPanel() {
+      selected = null;
+      document.getElementById('connectPanel').classList.remove('open');
+    }
+
+    async function doConnect() {
+      if (!selected) return;
+      const password = document.getElementById('password').value;
+      setStatus('Connecting to ' + selected.ssid + '…');
+      try {
+        const res = await fetch('/api/wifi/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ssid: selected.ssid, password: password })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Connect failed');
+        setStatus('Connected to ' + selected.ssid + '.', 'ok');
+        closeConnectPanel();
+        loadNetworks();
+      } catch (e) {
+        setStatus(e.message, 'err');
+      }
+    }
+
+    loadNetworks();
+  </script>
+</body>
+
+</html>

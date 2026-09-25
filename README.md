@@ -58,6 +58,50 @@ docker volume rm pepper-portal-python_pepper-ssh-key   # volume name may be pref
 
 Uploaded media and the manifest live in the `pepper-media` Docker volume, separate from the SSH key, so they survive independently.
 
+## Pepper's tablet (landing page + Wi-Fi setup)
+
+Pepper's chest tablet can be pointed at any URL (`ALTabletService.showWebview`), so the portal serves a small
+test landing page for it at `/tablet` -- the same Flask app as everything else, no separate service. From
+**Robot Control -> Tablet**, "Show on tablet" pushes it to Pepper; "Hide" clears it.
+
+The landing page (`src/app/templates/tablet.html`) is deliberately just two tiles for now:
+- **Wi-Fi Setup** (`/tablet/wifi`) -- scans and connects the Jetson's own internet-facing wifi NIC.
+- **Open Portal** (`/`) -- the full control dashboard, for testing the tablet's browser against the real app.
+
+**Addressing.** The tablet has to reach the portal over the LAN, not `localhost`. The portal figures out which of
+its own NICs actually routes to Pepper (a UDP "connect" to Pepper's IP, no packets sent, just used to read back
+the routing table's answer) and builds the URL from that plus `PORTAL_HOST_PORT` -- the Docker *host* port this
+service is published on, which the container can't discover on its own (`8081` for `pepper-portal`, `8088` for
+`pepper-portal-arm` -- set `PORTAL_HOST_PORT=8088` in `.env` on the ARM/Jetson deployment). Set
+`PORTAL_PUBLIC_BASE_URL` to skip auto-detection entirely.
+
+### Wi-Fi Setup screen
+
+**This is about the Jetson's own internet uplink** (`wlP1p1s0`, its integrated wifi, per "Mercusys MA14H Wi-Fi
+Adapter Setup on Jetson" below) -- **not** the Mercusys MA14H USB dongle (`wlx088af19321e3`), which is already
+dedicated as the `pepper-ap` access point Pepper itself connects to at `192.168.50.1/24`. Those are two unrelated
+interfaces on the same Jetson; the Wi-Fi Setup screen never touches the dongle/AP side, and `iw dev` is how that
+distinction was determined on this hardware -- confirm the interface names before assuming they carry over.
+
+Scanning/connecting needs `nmcli`, which needs NetworkManager's D-Bus socket and the host's own network
+namespace -- access a container shouldn't be given (see `docker-compose.yaml`'s notes on why the portal isn't
+`network_mode: host`: it would also break reaching `ollama`/`speech-to-text` by Compose service name). So this
+runs as a small **native systemd service** on the Jetson, not a container:
+
+```bash
+./install/setup_wifi_helper.sh            # uses wlP1p1s0 by default
+./install/setup_wifi_helper.sh wlAnother   # or name a different interface (`nmcli device status` to check)
+```
+
+This installs `host_services/wifi_helper.py` as `pepper-wifi-helper.service`, listening on `:8766`. The portal
+container reaches it at `http://host.docker.internal:8766` (already wired in `docker-compose.yaml`'s
+`extra_hosts`); override with `WIFI_HELPER_BASE_URL`. Since this endpoint can reconfigure networking, set
+`WIFI_HELPER_TOKEN` (matched against `PEPPER_WIFI_HELPER_TOKEN` on the host side) if the Jetson's network isn't
+one you trust everyone on; it's fine unset for a first test on a private LAN, consistent with the rest of this
+app running without auth.
+
+Logs: `sudo journalctl -u pepper-wifi-helper.service -f`.
+
 ## Always-On Deployment (Jetson, Raspberry Pi, etc.)
 
 For a machine that stays on and should just come back up after every reboot
@@ -569,3 +613,667 @@ chmod +x run_pi.sh #make sure its an executable
           v                                      v
     [ SSH Service ]                  [ Docker Container ]
                                      [ Web App on Port :5000 ]```
+
+
+# Mercusys MA14H Wi-Fi Adapter Setup on Jetson
+
+This document records how the Mercusys MA14H USB Wi-Fi adapter was installed and configured on the NVIDIA Jetson.
+
+The MA14H uses the AIC8800DC chipset.
+
+## 1. Install Required Packages
+
+```bash
+sudo apt update
+
+sudo apt install -y \
+    usb-modeswitch \
+    iw \
+    wireless-tools \
+    build-essential \
+    unzip \
+    wget
+```
+
+Check the Jetson kernel version:
+
+```bash
+uname -r
+```
+
+Example:
+
+```text
+5.15.148-tegra
+```
+
+The Jetson uses NVIDIA's Tegra kernel, so the kernel headers must match the running Tegra kernel.
+
+---
+
+## 2. Switch the MA14H from USB Storage Mode to Wi-Fi Mode
+
+When first connected, the MA14H may appear as a USB mass-storage device rather than a Wi-Fi adapter.
+
+Check:
+
+```bash
+lsusb
+```
+
+It may initially appear as something similar to:
+
+```text
+a69c:5721 Aic MSC
+```
+
+Switch it into Wi-Fi mode:
+
+```bash
+sudo usb_modeswitch -v a69c -p 5721 -K
+```
+
+Check again:
+
+```bash
+lsusb
+```
+
+The adapter should now enumerate as the AIC8800DC Wi-Fi device.
+
+---
+
+## 3. Download the Mercusys Beta Linux Driver
+
+Create a working directory:
+
+```bash
+mkdir -p /tmp/mercusys-ma14h
+cd /tmp/mercusys-ma14h
+```
+
+Download the newer Mercusys beta Linux driver:
+
+```bash
+wget -O ma14h-driver.zip \
+'https://static.mercusys.com/software/MA14H(EU)_V1_251010_Linux_Beta20251013080432.zip'
+```
+
+Extract the outer archive:
+
+```bash
+unzip ma14h-driver.zip
+```
+
+The archive contains another ZIP file:
+
+```text
+aic8800_linux_drvier.zip
+```
+
+Note that `drvier` is the spelling used by the vendor.
+
+Extract it:
+
+```bash
+unzip aic8800_linux_drvier.zip
+```
+
+---
+
+## 4. Run the Vendor Installation Script
+
+If the extracted package contains an `install.sh` script:
+
+```bash
+chmod +x install.sh
+sudo ./install.sh
+```
+
+The package contains both:
+
+- Linux kernel driver source
+- AIC8800 firmware binaries
+
+The firmware should be installed under:
+
+```text
+/lib/firmware/aic8800DC/
+```
+
+For example:
+
+```text
+/lib/firmware/aic8800DC/fmacfw_patch_8800dc_u02.bin
+```
+
+Verify:
+
+```bash
+ls -lah /lib/firmware/aic8800DC/
+```
+
+---
+
+## 5. Build the Kernel Driver
+
+Move into the AIC8800 driver directory:
+
+```bash
+cd /tmp/mercusys-ma14h/aic8800_linux_drvier/drivers/aic8800
+```
+
+Make sure the build directory belongs to the current user:
+
+```bash
+sudo chown -R "$USER":"$(id -gn)" /tmp/mercusys-ma14h
+```
+
+Clean any previous build:
+
+```bash
+make clean
+```
+
+Compile:
+
+```bash
+make -j"$(nproc)"
+```
+
+The build creates kernel modules such as:
+
+```text
+aic_load_fw.ko
+aic8800_fdrv.ko
+```
+
+---
+
+## 6. Install the Kernel Modules
+
+Install the compiled modules:
+
+```bash
+sudo make install
+```
+
+Regenerate the kernel module dependency database:
+
+```bash
+sudo depmod -a
+```
+
+Verify that Linux knows about the modules:
+
+```bash
+modinfo aic_load_fw
+modinfo aic8800_fdrv
+```
+
+---
+
+## 7. Load the Driver into the Kernel
+
+Load the Linux wireless subsystem:
+
+```bash
+sudo modprobe cfg80211
+```
+
+Load the AIC firmware loader:
+
+```bash
+sudo modprobe aic_load_fw
+```
+
+Load the AIC Wi-Fi driver:
+
+```bash
+sudo modprobe aic8800_fdrv
+```
+
+Verify that the modules are loaded:
+
+```bash
+lsmod | grep aic
+```
+
+Expected modules include:
+
+```text
+aic8800_fdrv
+aic_load_fw
+```
+
+---
+
+## 8. Verify the Wi-Fi Interface
+
+Check the wireless interfaces:
+
+```bash
+iw dev
+```
+
+On this Jetson the MA14H appeared as:
+
+```text
+phy#4
+    Interface wlx088af19321e3
+```
+
+The Jetson integrated Wi-Fi remained:
+
+```text
+phy#0
+    Interface wlP1p1s0
+```
+
+Therefore:
+
+```text
+wlP1p1s0
+    = Jetson integrated Wi-Fi
+
+wlx088af19321e3
+    = Mercusys MA14H
+```
+
+The AIC driver initially created the interface as:
+
+```text
+wlan0
+```
+
+Linux/udev then automatically renamed it to:
+
+```text
+wlx088af19321e3
+```
+
+This is normal.
+
+---
+
+# Pepper Wi-Fi Access Point
+
+The desired network architecture is:
+
+```text
+                 Internet / Wits Network
+                          |
+                +---------+---------+
+                |                   |
+          Jetson Wi-Fi          Ethernet
+           wlP1p1s0            enP8p1s0
+                \                   /
+                 \                 /
+                    Jetson
+                       |
+                       |
+                Mercusys MA14H
+              wlx088af19321e3
+                 192.168.50.1
+                       |
+                  PepperJetson
+                    Wi-Fi AP
+                       |
+                     Pepper
+                192.168.50.x
+```
+
+The Jetson can use either:
+
+```text
+wlP1p1s0
+```
+
+or:
+
+```text
+enP8p1s0
+```
+
+for its upstream network connection.
+
+The MA14H is dedicated to the Pepper network.
+
+---
+
+## 9. Create the Pepper Access Point
+
+Create a NetworkManager Wi-Fi profile:
+
+```bash
+sudo nmcli connection add \
+    type wifi \
+    ifname wlx088af19321e3 \
+    con-name pepper-ap \
+    ssid PepperJetson
+```
+
+Configure it as an access point:
+
+```bash
+sudo nmcli connection modify pepper-ap \
+    802-11-wireless.mode ap \
+    802-11-wireless.band bg \
+    802-11-wireless.channel 6 \
+    wifi-sec.key-mgmt wpa-psk \
+    wifi-sec.psk 'CHANGE_THIS_PASSWORD' \
+    ipv4.method shared \
+    ipv4.addresses 192.168.50.1/24 \
+    ipv6.method disabled
+```
+
+Start the AP:
+
+```bash
+sudo nmcli connection up pepper-ap
+```
+
+The Jetson MA14H interface should now use:
+
+```text
+192.168.50.1/24
+```
+
+Pepper should receive an address in the same subnet, for example:
+
+```text
+192.168.50.2
+192.168.50.3
+192.168.50.10
+```
+
+---
+
+## 10. Verify the Access Point
+
+Check NetworkManager:
+
+```bash
+nmcli device status
+```
+
+Check the MA14H wireless mode:
+
+```bash
+iw dev wlx088af19321e3 info
+```
+
+It should show:
+
+```text
+type AP
+```
+
+Check its IP address:
+
+```bash
+ip addr show wlx088af19321e3
+```
+
+It should contain:
+
+```text
+inet 192.168.50.1/24
+```
+
+See devices associated with the Wi-Fi AP:
+
+```bash
+iw dev wlx088af19321e3 station dump
+```
+
+See IP-to-MAC mappings on the Pepper network:
+
+```bash
+ip neigh show dev wlx088af19321e3
+```
+
+---
+
+# Useful Verification Commands
+
+Check USB devices:
+
+```bash
+lsusb
+```
+
+Check loaded AIC modules:
+
+```bash
+lsmod | grep aic
+```
+
+Check wireless devices:
+
+```bash
+iw dev
+```
+
+Check all network interfaces:
+
+```bash
+ip -br link
+```
+
+Check IP addresses:
+
+```bash
+ip -br addr
+```
+
+Check NetworkManager:
+
+```bash
+nmcli device status
+```
+
+Check AIC kernel logs:
+
+```bash
+sudo dmesg | grep -i -E 'aic|8800|firmware'
+```
+
+Watch kernel logs live:
+
+```bash
+sudo dmesg -w
+```
+
+---
+
+# Important Networking Commands
+
+The main commands used to understand the Jetson network are:
+
+```bash
+ip -br addr
+ip route
+ip neigh
+iw dev
+nmcli device status
+```
+
+They answer different questions.
+
+## `ip -br addr`
+
+Shows network interfaces and their IP addresses.
+
+```bash
+ip -br addr
+```
+
+Example:
+
+```text
+wlP1p1s0         UP     192.168.1.21/24
+enP8p1s0         UP     192.168.100.2/24
+wlx088af19321e3  UP     192.168.50.1/24
+```
+
+---
+
+## `ip route`
+
+Shows how Linux decides where packets should go.
+
+```bash
+ip route
+```
+
+For example:
+
+```text
+default via 192.168.1.1 dev wlP1p1s0
+192.168.1.0/24 dev wlP1p1s0
+192.168.50.0/24 dev wlx088af19321e3
+```
+
+To see which interface Linux would use for a particular destination:
+
+```bash
+ip route get 8.8.8.8
+```
+
+---
+
+## `ip neigh`
+
+Shows neighboring devices and their IP-to-MAC mappings.
+
+```bash
+ip neigh
+```
+
+For Pepper specifically:
+
+```bash
+ip neigh show dev wlx088af19321e3
+```
+
+This is useful for discovering Pepper's DHCP-assigned IP address.
+
+---
+
+## `iw dev`
+
+Shows Wi-Fi interfaces and their modes.
+
+```bash
+iw dev
+```
+
+Typical layout:
+
+```text
+phy#0
+    Interface wlP1p1s0
+        type managed
+
+phy#4
+    Interface wlx088af19321e3
+        type AP
+```
+
+`managed` means the Jetson is acting as a Wi-Fi client.
+
+`AP` means the Jetson is acting as a Wi-Fi access point.
+
+---
+
+## `nmcli device status`
+
+Shows how NetworkManager is using each interface.
+
+```bash
+nmcli device status
+```
+
+Example:
+
+```text
+DEVICE             TYPE      STATE       CONNECTION
+wlP1p1s0           wifi      connected   RAIL_002
+wlx088af19321e3    wifi      connected   pepper-ap
+enP8p1s0           ethernet  connected   Wired connection
+```
+
+---
+
+# Finding and Testing Pepper
+
+Check whether Pepper is associated with the AP:
+
+```bash
+iw dev wlx088af19321e3 station dump
+```
+
+Find its IP:
+
+```bash
+ip neigh show dev wlx088af19321e3
+```
+
+Test connectivity:
+
+```bash
+ping <PEPPER_IP>
+```
+
+Force the ping through the MA14H:
+
+```bash
+ping -I wlx088af19321e3 <PEPPER_IP>
+```
+
+Check whether Pepper's NAOqi service is reachable:
+
+```bash
+nmap -p 9559 <PEPPER_IP>
+```
+
+---
+
+# Final Interface Layout
+
+```text
+wlP1p1s0
+    Jetson integrated Wi-Fi
+    Mode: managed
+    Purpose: upstream Wi-Fi / Internet
+
+enP8p1s0
+    Jetson Ethernet
+    Purpose: upstream Ethernet or local wired network
+
+wlx088af19321e3
+    Mercusys MA14H / AIC8800DC
+    Mode: AP
+    Address: 192.168.50.1/24
+    Purpose: dedicated Pepper Wi-Fi network
+```
+
+The main architecture is:
+
+```text
+Upstream Wi-Fi or Ethernet
+            |
+            v
+          Jetson
+            |
+      routing / NAT
+            |
+            v
+   Mercusys MA14H AP
+      192.168.50.1
+            |
+            v
+          Pepper
+      192.168.50.x
+```

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Pepper</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%; margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 50% 20%, #131b30 0%, #070a12 70%);
+      color: #f5f8ff;
+    }
+    body {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 2rem; text-align: center; gap: 2.5rem;
+    }
+    h1 { font-size: clamp(2rem, 5vw, 3.2rem); margin: 0; letter-spacing: .02em; }
+    p.sub { margin: -1.5rem 0 0; color: #91a0bd; font-size: 1.1rem; }
+    .buttons { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }
+    a.tile {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: .6rem; width: 260px; height: 200px; border-radius: 24px;
+      border: 1px solid rgba(154,177,221,.18);
+      background: rgba(18,24,40,.78);
+      color: #f5f8ff; text-decoration: none;
+      box-shadow: 0 12px 40px rgba(0,0,0,.28);
+    }
+    a.tile:active { background: rgba(100,229,255,.14); border-color: rgba(120,224,255,.4); }
+    .tile .icon { font-size: 2.6rem; }
+    .tile .label { font-size: 1.3rem; font-weight: 700; }
+    .tile .hint { font-size: .9rem; color: #91a0bd; }
+    .footer { color: #5b6a86; font-size: .85rem; }
+  </style>
+</head>
+
+<body>
+  <div>
+    <h1>Hi, I'm Pepper</h1>
+    <p class="sub">What would you like to do?</p>
+  </div>
+  <div class="buttons">
+    <a class="tile" href="/tablet/wifi">
+      <span class="icon">&#128246;</span>
+      <span class="label">Wi-Fi Setup</span>
+      <span class="hint">Connect this robot to a network</span>
+    </a>
+    <a class="tile" href="/">
+      <span class="icon">&#128421;</span>
+      <span class="label">Open Portal</span>
+      <span class="hint">Full control dashboard</span>
+    </a>
+  </div>
+  <div class="footer">Pepper Portal &middot; tablet test page</div>
+</body>
+
+</html>

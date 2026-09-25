@@ -19,6 +19,18 @@ x-pepper-portal: &pepper-portal
     # http://host.docker.internal:8765 to use the host MLX helper instead
     # (./run_local_services.sh), which is faster on Apple Silicon.
     LOCAL_STT_BASE_URL: ${LOCAL_STT_BASE_URL:-http://speech-to-text:8765}
+    # The Docker *host* port this service is published on (see the `ports:`
+    # block below) -- the container can't discover its own published port, but
+    # Pepper's tablet needs it to build a LAN-reachable URL for showWebview().
+    # This anchor is shared by both services (merge keys replace, not merge,
+    # a service-level `environment:` block -- see docker-compose.yaml history),
+    # so on the ARM service (published on 8088, not 8081) set
+    # PORTAL_HOST_PORT=8088 in .env.
+    PORTAL_HOST_PORT: ${PORTAL_HOST_PORT:-8081}
+    # nmcli bridge for the tablet's Wi-Fi Setup screen -- runs natively on the
+    # host via systemd (install/setup_wifi_helper.sh), not in a container.
+    WIFI_HELPER_BASE_URL: ${WIFI_HELPER_BASE_URL:-http://host.docker.internal:8766}
+    WIFI_HELPER_TOKEN: ${WIFI_HELPER_TOKEN:-}
   # host.docker.internal is built in on Docker Desktop but absent on Linux hosts;
   # kept so the host MLX helper stays reachable when LOCAL_STT_BASE_URL points at it.
   extra_hosts:

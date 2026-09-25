@@ -121,6 +121,26 @@ LOCAL_STT_BASE_URL = os.environ.get(
 ).rstrip("/")
 LOCAL_STT_TIMEOUT_SECONDS = int(os.environ.get("LOCAL_STT_TIMEOUT_SECONDS", "180"))
 LOCAL_STT_SETUP_URL = "https://pypi.org/project/faster-whisper/"
+
+# Pepper's tablet (ALTabletService.showWebview) has to reach the portal over
+# the LAN, not localhost, so it needs to know its own externally-reachable
+# URL. PORTAL_HOST_PORT is the Docker *host* port (set per-service in
+# docker-compose.yaml -- the container can't discover its own published port).
+# PORTAL_PUBLIC_BASE_URL overrides the whole thing when auto-detection picks
+# the wrong NIC or DNS/mDNS is preferred over a raw IP.
+PORTAL_HOST_PORT = os.environ.get("PORTAL_HOST_PORT", "8081")
+PORTAL_PUBLIC_BASE_URL = (os.environ.get("PORTAL_PUBLIC_BASE_URL") or "").rstrip("/") or None
+
+# Native host-side helper (systemd, not a container -- see
+# host_services/wifi_helper.py) that runs `nmcli` against the Jetson's
+# internal wifi NIC. host.docker.internal is already wired in
+# docker-compose.yaml's extra_hosts for exactly this kind of host-side call.
+WIFI_HELPER_BASE_URL = os.environ.get(
+    "WIFI_HELPER_BASE_URL", "http://host.docker.internal:8766"
+).rstrip("/")
+WIFI_HELPER_TIMEOUT_SECONDS = int(os.environ.get("WIFI_HELPER_TIMEOUT_SECONDS", "20"))
+WIFI_HELPER_TOKEN = os.environ.get("WIFI_HELPER_TOKEN", "").strip() or None
+
 PEPPER_MIC_SAMPLE_RATE = 16000
 PEPPER_MIC_MIN_SECONDS = 2
 PEPPER_MIC_MAX_SECONDS = 45
@@ -451,6 +471,55 @@ def ollama_request(path, payload=None, timeout=10):
     response = urllib2.urlopen(req, timeout=timeout)
     raw = response.read()
     return json.loads(raw.decode("utf-8")) if raw else {}
+
+
+def wifi_helper_request(path, payload=None, timeout=None):
+    """Call the native host-side wifi helper (host_services/wifi_helper.py)."""
+    url = WIFI_HELPER_BASE_URL + path
+    body = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    if WIFI_HELPER_TOKEN:
+        headers["X-Wifi-Helper-Token"] = WIFI_HELPER_TOKEN
+    req = urllib2.Request(url, data=body, headers=headers)
+    response = urllib2.urlopen(req, timeout=timeout or WIFI_HELPER_TIMEOUT_SECONDS)
+    raw = response.read()
+    return json.loads(raw.decode("utf-8")) if raw else {}
+
+
+def local_ip_for(remote_ip, remote_port=9559):
+    """
+    The local IP of whichever NIC routes to remote_ip -- e.g. the Jetson's
+    internal wifi vs. its USB dongle vs. Ethernet, whichever one actually
+    reaches Pepper right now. No packets are sent; connect() on a UDP socket
+    only resolves a route.
+    """
+    sock = None
+    try:
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.connect((remote_ip, remote_port))
+        return sock.getsockname()[0]
+    except Exception:
+        return None
+    finally:
+        if sock is not None:
+            sock.close()
+
+
+def portal_base_url(pepper_ip=None):
+    """Best-effort externally-reachable base URL for this portal, for Pepper's tablet."""
+    if PORTAL_PUBLIC_BASE_URL:
+        return PORTAL_PUBLIC_BASE_URL
+    host = local_ip_for(pepper_ip) if pepper_ip else None
+    if not host:
+        try:
+            host = request.host.split(":")[0]
+        except Exception:
+            host = "localhost"
+    return "http://%s:%s" % (host, PORTAL_HOST_PORT)
 
 
 def ollama_models():
@@ -890,6 +959,97 @@ ANIMATIONS_GROUPED = {
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html", animations=ANIMATIONS)
+
+
+# --- Pepper's tablet (ALTabletService.showWebview points here) ---
+# A simple, deliberately static landing page: pick a wifi network for the
+# Jetson's internal NIC, or jump to the main portal. Served from this same
+# Flask app for simplicity -- no separate service.
+
+@app.route("/tablet", methods=["GET"])
+def tablet_landing():
+    return render_template("tablet.html")
+
+
+@app.route("/tablet/wifi", methods=["GET"])
+def tablet_wifi():
+    return render_template("tablet_wifi.html")
+
+
+@app.route("/api/tablet/show", methods=["POST"])
+@json_endpoint
+def api_tablet_show():
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    path = (data.get("path") or "/tablet").strip()
+    url = (data.get("url") or "").strip()
+    if not ip:
+        return jsonify({"ok": False, "error": "'ip' is required"}), 400
+    if PepperController is None:
+        return jsonify({"ok": False, "error": "Pepper controller is unavailable"}), 500
+    if not url:
+        if not path.startswith("/"):
+            path = "/" + path
+        url = portal_base_url(ip) + path
+    controller = PepperController(ip=ip, port=port, verbose=True)
+    controller.show_tablet(url)
+    return jsonify({"ok": True, "url": url})
+
+
+@app.route("/api/tablet/hide", methods=["POST"])
+@json_endpoint
+def api_tablet_hide():
+    data = request.get_json(force=True)
+    ip = (data.get("ip") or "").strip()
+    port = int(data.get("port", 9559))
+    if not ip:
+        return jsonify({"ok": False, "error": "'ip' is required"}), 400
+    if PepperController is None:
+        return jsonify({"ok": False, "error": "Pepper controller is unavailable"}), 500
+    controller = PepperController(ip=ip, port=port, verbose=True)
+    controller.hide_tablet()
+    return jsonify({"ok": True})
+
+
+# --- Wifi (Jetson's internal NIC), proxied to the native host_services/wifi_helper.py ---
+# Runs outside Docker (systemd, see README) because controlling the host's
+# own wifi radio needs host network namespace access that a container
+# shouldn't be given (see docker-compose.yaml notes on why the portal isn't
+# network_mode: host).
+
+@app.route("/api/wifi/status", methods=["GET"])
+@json_endpoint
+def api_wifi_status():
+    try:
+        return jsonify(wifi_helper_request("/status", timeout=8))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "Wifi helper unreachable: %s" % exc}), 502
+
+
+@app.route("/api/wifi/networks", methods=["GET"])
+@json_endpoint
+def api_wifi_networks():
+    try:
+        return jsonify(wifi_helper_request("/networks", timeout=WIFI_HELPER_TIMEOUT_SECONDS))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "Wifi helper unreachable: %s" % exc}), 502
+
+
+@app.route("/api/wifi/connect", methods=["POST"])
+@json_endpoint
+def api_wifi_connect():
+    data = request.get_json(force=True)
+    ssid = (data.get("ssid") or "").strip()
+    password = data.get("password") or ""
+    if not ssid:
+        return jsonify({"ok": False, "error": "'ssid' is required"}), 400
+    try:
+        return jsonify(wifi_helper_request(
+            "/connect", payload={"ssid": ssid, "password": password}, timeout=WIFI_HELPER_TIMEOUT_SECONDS
+        ))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": "Wifi helper unreachable: %s" % exc}), 502
 
 
 @app.route("/api/connect-test", methods=["POST"])

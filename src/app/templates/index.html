@@ -375,6 +375,23 @@
     <div id="modeStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
 
+  <div class="card workspace-panel" data-view="control" hidden>
+    <h2>Tablet</h2>
+    <p class="muted">Show the test landing page (Wi-Fi setup / open portal) on Pepper's chest tablet, or a custom
+      path on this same portal.</p>
+    <div class="row">
+      <div>
+        <label for="tabletPath">Path on this portal</label>
+        <input id="tabletPath" placeholder="/tablet" value="/tablet" />
+      </div>
+      <div style="align-self:end">
+        <button class="primary-action" onclick="showTablet()">Show on tablet</button>
+        <button onclick="hideTablet()">Hide</button>
+      </div>
+    </div>
+    <div id="tabletStatus" class="muted" style="margin-top:.5rem"></div>
+  </div>
+
   <div class="card workspace-panel" id="visionCard" data-view="vision" hidden>
     <h2>Pepper Vision</h2>
     <p class="muted">View Pepper's top or bottom camera. The preview is off by default and frames are not stored by
@@ -1671,6 +1688,32 @@
         modeStatus.innerHTML = '<span class="ok">Animation mode ' + (enabled ? 'enabled.' : 'disabled.') + '</span>';
         log('Animation mode ' + (enabled ? 'enabled' : 'disabled'));
       } catch (e) { modeStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Animation mode error: ' + e.message); }
+    }
+
+    async function showTablet() {
+      const status = document.getElementById('tabletStatus');
+      const ip = ipInput.value.trim();
+      const port = (portInput.value.trim() || '9559');
+      const path = document.getElementById('tabletPath').value.trim() || '/tablet';
+      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      status.textContent = 'Showing on tablet…';
+      try {
+        const res = await postJSON('/api/tablet/show', { ip, port: Number(port), path });
+        status.innerHTML = '<span class="ok">Showing ' + res.url + '</span>';
+        log('Tablet showing: ' + res.url);
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; log('Tablet show error: ' + e.message); }
+    }
+
+    async function hideTablet() {
+      const status = document.getElementById('tabletStatus');
+      const ip = ipInput.value.trim();
+      const port = (portInput.value.trim() || '9559');
+      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      try {
+        await postJSON('/api/tablet/hide', { ip, port: Number(port) });
+        status.innerHTML = '<span class="ok">Tablet hidden.</span>';
+        log('Tablet hidden.');
+      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; log('Tablet hide error: ' + e.message); }
     }
 
     // ----- Scripts UI -----

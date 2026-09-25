@@ -98,6 +98,10 @@ class PepperController(object):
             self.behavior = self.session.service("ALBehaviorManager")
         except Exception:
             self.behavior = None
+        try:
+            self.tablet = self.session.service("ALTabletService")
+        except Exception:
+            self.tablet = None
         _log("Connected to Pepper at %s:%s" % (ip, port), "INFO", self.verbose)
 
     def _call(self, proxy, method, *args, **kwargs):
@@ -146,6 +150,20 @@ class PepperController(object):
             return None
         _log("Request BEHAVIOR: %s" % (name,), "INFO", self.verbose)
         return self._call(self.behavior, "runBehavior", name, async_play=async_play)
+
+    def show_tablet(self, url):
+        if self.tablet is None:
+            _log("ALTabletService not available", "WARN", self.verbose)
+            return None
+        _log("Request TABLET SHOW: %s" % (url,), "INFO", self.verbose)
+        return self._call(self.tablet, "showWebview", url, async_play=False)
+
+    def hide_tablet(self):
+        if self.tablet is None:
+            _log("ALTabletService not available", "WARN", self.verbose)
+            return None
+        _log("Request TABLET HIDE", "INFO", self.verbose)
+        return self._call(self.tablet, "hideWebview", async_play=False)
 
     def play_audio(self, path, async_play=True):
         # Normalize to robot Linux-style path and warn if it looks local
