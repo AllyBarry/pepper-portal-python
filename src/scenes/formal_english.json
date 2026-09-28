@@ -1,0 +1,55 @@
+{
+  "scene": [
+    {
+      "actions": [
+        {
+          "audiofile": "/data/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Formal Conditions/English/1.wav"
+        }, 
+        {
+          "animation": "animations/Stand/Emotions/Neutral/Embarrassed_1", 
+          "await": "anim"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "/data/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Formal Conditions/English/2.wav"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "3_Formal English.wav"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "4_Formal English.wav"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "5_Formal English.wav"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "6_Formal English.wav"
+        }, 
+        {
+          "animation": "animations/Stand/Emotions/Neutral/Embarrassed_1", 
+          "await": "anim"
+        }
+      ]
+    }
+  ], 
+  "script_name": "formal_english"
+}

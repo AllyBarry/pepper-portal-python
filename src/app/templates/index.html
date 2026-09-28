@@ -2184,20 +2184,100 @@
         const response = await fetch('/api/get-scene/' + encodeURIComponent(name));
         const data = await response.json();
         if (data.ok === false) throw new Error(data.error || 'Could not load scene');
-        document.getElementById('sceneName').value = data.script_name || name;
+        // Always mirror the picker (the on-disk filename). That's what Run
+        // Scene sends to the server, so name-mismatches between the JSON's
+        // script_name field and the filename can't cause a Scene-not-found.
+        // To duplicate a scene: change this field, edit steps, click Save.
+        document.getElementById('sceneName').value = name;
         document.getElementById('sceneSteps').value = JSON.stringify(data.scene || [], null, 2);
+        document.getElementById('sceneStatus').innerHTML = '<span class="ok">Loaded ' + name + '.</span>';
       } catch (e) { document.getElementById('sceneStatus').innerHTML = '<span class="err">' + e.message + '</span>'; }
+    }
+
+    // Lightweight structural check so we catch broken scenes before they
+    // reach Pepper. Full validation happens server-side too.
+    function validateSceneSteps(steps) {
+      if (!Array.isArray(steps)) return 'Top-level scene must be an array of blocks.';
+      const knownActionKeys = new Set([
+        'audiofile', 'audiofiles', 'audio', 'audios',
+        'say', 'text', 'texts',
+        'animation', 'animations', 'run', 'runs',
+        'behavior', 'behaviors', 'behaviour', 'behaviours',
+        'await', 'await_audio', 'await_tts', 'await_anim', 'await_behavior',
+        'hold_for'
+      ]);
+      for (let bi = 0; bi < steps.length; bi++) {
+        const block = steps[bi];
+        if (!block || typeof block !== 'object' || Array.isArray(block)) {
+          return 'Block ' + bi + ' must be an object.';
+        }
+        if (!Array.isArray(block.actions) || block.actions.length === 0) {
+          return 'Block ' + bi + ' needs a non-empty "actions" array.';
+        }
+        for (let ai = 0; ai < block.actions.length; ai++) {
+          const act = block.actions[ai];
+          if (!act || typeof act !== 'object' || Array.isArray(act)) {
+            return 'Block ' + bi + ' action ' + ai + ' must be an object.';
+          }
+          const keys = Object.keys(act);
+          if (!keys.length) {
+            return 'Block ' + bi + ' action ' + ai + ' is empty.';
+          }
+          const unknown = keys.filter(function (k) { return !knownActionKeys.has(k); });
+          if (unknown.length) {
+            return 'Block ' + bi + ' action ' + ai + ': unknown key(s) ' + unknown.join(', ');
+          }
+          const hasVerb = keys.some(function (k) {
+            return ['audiofile','audiofiles','audio','audios','say','text','texts',
+                    'animation','animations','run','runs',
+                    'behavior','behaviors','behaviour','behaviours'].indexOf(k) !== -1;
+          });
+          if (!hasVerb) {
+            return 'Block ' + bi + ' action ' + ai + ' has no verb (say/audiofile/animation/behavior).';
+          }
+        }
+      }
+      return null;
     }
 
     async function saveScene() {
       const status = document.getElementById('sceneStatus');
+      const rawName = document.getElementById('sceneName').value.trim();
+      if (!rawName) {
+        status.innerHTML = '<span class="err">Give the scene a name before saving.</span>';
+        return;
+      }
+      const raw = document.getElementById('sceneSteps').value || '[]';
+      let steps;
       try {
-        const name = document.getElementById('sceneName').value.trim();
-        const steps = JSON.parse(document.getElementById('sceneSteps').value || '[]');
-        const result = await postJSON('/api/save-scene', { name, steps });
-        status.innerHTML = '<span class="ok">Saved ' + result.filename + '.</span>';
+        steps = JSON.parse(raw);
+      } catch (e) {
+        // JSON.parse errors on Chrome/Firefox include "at position N"; fish out
+        // the line for a friendlier hint.
+        const pos = /position\s+(\d+)/.exec(e.message);
+        let where = '';
+        if (pos) {
+          const p = Number(pos[1]);
+          const before = raw.slice(0, p);
+          const line = before.split('\n').length;
+          const col = before.length - before.lastIndexOf('\n');
+          where = ' (line ' + line + ', column ' + col + ')';
+        }
+        status.innerHTML = '<span class="err">Invalid JSON' + where + ': ' + escapeHtml(e.message) + '</span>';
+        return;
+      }
+      const structural = validateSceneSteps(steps);
+      if (structural) {
+        status.innerHTML = '<span class="err">' + escapeHtml(structural) + '</span>';
+        return;
+      }
+      try {
+        const result = await postJSON('/api/save-scene', { name: rawName, steps: steps });
+        status.innerHTML = '<span class="ok">Saved ' + result.filename + '. script_name set to "' + rawName + '".</span>';
         refreshScenes();
-      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; }
+      } catch (e) {
+        status.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+      }
     }
 
     async function runScene() {

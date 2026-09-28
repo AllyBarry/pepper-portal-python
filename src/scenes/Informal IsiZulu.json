@@ -1,0 +1,167 @@
+{
+  "scene": [
+    {
+      "actions": [
+        {
+          "audiofile": "/data/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Informal Conditions/isiZulu/1.wav"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Hey_4", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_3", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_5", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_3", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_8", 
+          "await": "anim"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "/data/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Informal Conditions/English/2.wav"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/ShowSky_5", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_4", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_5", 
+          "await": "anim"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "3_Informal Zulu.wav"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_5", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_3", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_4", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_3", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_3", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Excited_1", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_3", 
+          "await": "anim"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "4_Informal Zulu.wav"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_8", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_11", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Thinking_1", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_3", 
+          "await": "anim"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "5_Informal Zulu.wav"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_8", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Far_1", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_11", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_5", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Thinking_8", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_3", 
+          "await": "anim"
+        }
+      ]
+    }, 
+    {
+      "actions": [
+        {
+          "audiofile": "6_Informal Zulu.wav"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Give_4", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Thinking_8", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Me_7", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/YouKnowWhat_5", 
+          "await": "anim"
+        }, 
+        {
+          "animation": "animations/Stand/Gestures/Explain_11", 
+          "await": "anim"
+        }
+      ]
+    }
+  ], 
+  "script_name": "Informal IsiZulu"
+}

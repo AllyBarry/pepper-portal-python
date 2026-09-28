@@ -1,0 +1,38 @@
+{
+  "script_name": "formal_isizulu",
+  "audio_source": "/data/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Formal Conditions/IsiZulu/Formal Zulu_Formatted/",
+  "scene": [
+    {
+      "actions": [
+        { "audiofile": "1_Formal Zulu.wav" },
+        { "animation": "animations/Stand/Emotions/Neutral/Embarrassed_1", "await": "anim" }
+      ]
+    },
+    {
+      "actions": [
+        { "audiofile": "2_Formal Zulu.wav" }
+      ]
+    },
+    {
+      "actions": [
+        { "audiofile": "3_Formal Zulu.wav" }
+      ]
+    },
+    {
+      "actions": [
+        { "audiofile": "4_Formal Zulu.wav" }
+      ]
+    },
+    {
+      "actions": [
+        { "audiofile": "5_Formal Zulu.wav" }
+      ]
+    },
+    {
+      "actions": [
+        { "audiofile": "6_Formal Zulu.wav" },
+        { "animation": "animations/Stand/Emotions/Neutral/Embarrassed_1", "await": "anim" }
+      ]
+    }
+  ]
+}

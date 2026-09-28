@@ -1285,3 +1285,6 @@ Upstream Wi-Fi or Ethernet
           Pepper
       192.168.50.x
 ```
+# TODO
+
+- When connecting to the AP I need to ensure it can follow connection from the shares wifi. Also I want a network section in the portal so I can connect the internetal network of jetson. I can choose (this is the uplink nic)

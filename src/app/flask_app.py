@@ -2061,17 +2061,63 @@ def api_get_scene(name):
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+SCENE_ACTION_VERBS = frozenset([
+    "audiofile", "audiofiles", "audio", "audios",
+    "say", "text", "texts",
+    "animation", "animations", "run", "runs",
+    "behavior", "behaviors", "behaviour", "behaviours",
+])
+SCENE_ACTION_MODIFIERS = frozenset([
+    "await", "await_audio", "await_tts", "await_anim", "await_behavior",
+    "hold_for",
+])
+SCENE_BLOCK_KEYS = frozenset(["actions", "wait", "time"])
+
+
+def _validate_scene_steps(steps):
+    """Return None if steps is a well-formed scene body, else an error string.
+
+    Mirrors validateSceneSteps() in the UI so a hand-crafted POST or a saved
+    file can't smuggle in blocks the scripter doesn't understand.
+    """
+    if not isinstance(steps, list):
+        return "Top-level scene must be a list of blocks."
+    for bi, block in enumerate(steps):
+        if not isinstance(block, dict):
+            return "Block %d must be an object." % bi
+        stray = set(block.keys()) - SCENE_BLOCK_KEYS
+        if stray:
+            return "Block %d: unknown key(s) %s" % (bi, ", ".join(sorted(stray)))
+        actions = block.get("actions")
+        if not isinstance(actions, list) or not actions:
+            return "Block %d needs a non-empty 'actions' array." % bi
+        for ai, action in enumerate(actions):
+            if not isinstance(action, dict) or not action:
+                return "Block %d action %d must be a non-empty object." % (bi, ai)
+            keys = set(action.keys())
+            unknown = keys - SCENE_ACTION_VERBS - SCENE_ACTION_MODIFIERS
+            if unknown:
+                return "Block %d action %d: unknown key(s) %s" % (
+                    bi, ai, ", ".join(sorted(unknown)))
+            if not (keys & SCENE_ACTION_VERBS):
+                return "Block %d action %d has no verb (say/audiofile/animation/behavior)." % (bi, ai)
+    return None
+
+
 @app.route("/api/save-scene", methods=["POST"])
 @json_endpoint
 def api_save_scene():
     data = request.get_json(force=True)
     name = _safe_name(data.get("name"))
     steps = data.get("steps")
-    if not name or not isinstance(steps, list):
-        return jsonify({"ok": False, "error": "Name and steps (array) required"}), 400
+    if not name:
+        return jsonify({"ok": False, "error": "Scene name is required"}), 400
+    problem = _validate_scene_steps(steps)
+    if problem:
+        return jsonify({"ok": False, "error": problem}), 400
     path = _safe_join(SCENES_DIR, name + ".json")
     _json_write_utf8(path, {"script_name": name, "scene": steps})
-    return jsonify({"ok": True, "filename": os.path.basename(path)})
+    return jsonify({"ok": True, "filename": os.path.basename(path), "script_name": name})
 
 
 @app.route("/api/run-scene", methods=["POST"])
