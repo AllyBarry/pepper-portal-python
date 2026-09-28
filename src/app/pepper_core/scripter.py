@@ -59,14 +59,14 @@ def _resolve_audio_path(audiofile, audio_source):
         return os.path.normpath(rel)
     if audio_source:
         return os.path.normpath(os.path.join(audio_source, rel))
-    # No audio_source on the scene: treat it as a bare filename from the
-    # portal's media uploads and resolve it against the one canonical
-    # directory every uploaded audio file lands in on Pepper.
+    # No audio_source on the scene: treat it as a bare filename dropped on the
+    # Media page with the default folder, i.e. media/uploads/ on the
+    # Jetson -> .../wav/uploads/ on Pepper.
     try:
-        from .media_store import PEPPER_AUDIO_UPLOAD_DIR
+        from .media_store import PEPPER_WAV_ROOT, DEFAULT_FOLDER
     except Exception:
-        PEPPER_AUDIO_UPLOAD_DIR = "/data/home/nao/.local/share/wav/uploads/"
-    return os.path.normpath(os.path.join(PEPPER_AUDIO_UPLOAD_DIR, rel))
+        PEPPER_WAV_ROOT, DEFAULT_FOLDER = "/data/home/nao/.local/share/wav/", "uploads"
+    return os.path.normpath(os.path.join(PEPPER_WAV_ROOT, DEFAULT_FOLDER, rel))
 
 def _parse_await_policy(row):
     """

@@ -580,6 +580,115 @@ def check_portal(env):
     return out
 
 
+# ---------------- pepper ssh / scp ----------------
+
+def _portal_container():
+    """Pick a running pepper-portal container. The main service on this
+    Jetson is `pepper_portal`; `pepper_portal_arm` is a compose variant
+    kept for other hosts. Prefer whichever the operator actually uses.
+    """
+    for name in ("pepper_portal", "pepper_portal_arm"):
+        rc, so, _ = run(["docker", "inspect", "-f", "{{.State.Running}}", name])
+        if rc == 0 and so.strip() == "true":
+            return name
+    return None
+
+
+def check_pepper_ssh(env):
+    out = []
+    pepper_ip = env.get("PEPPER_IP") or os.environ.get("PEPPER_IP", "")
+    container = _portal_container()
+
+    if not container:
+        out.append(Result("portal container", FAIL, "no running pepper_portal[_arm] to exec into",
+                          fix="docker compose up -d pepper-portal-arm"))
+        return out
+
+    # Tools in the image at all? (openssh-client was added to Dockerfile but
+    # any pre-existing image built before that lacks ssh-keygen entirely.)
+    rc, so, _ = run(["docker", "exec", container, "sh", "-c", "command -v ssh-keygen ssh scp"])
+    if rc != 0 or not so.strip():
+        out.append(Result(
+            "ssh tooling in image",
+            FAIL,
+            "ssh-keygen/ssh/scp missing from the portal image",
+            fix="docker compose build pepper-portal-arm (or pepper-portal) - image predates openssh-client in Dockerfile",
+        ))
+        return out
+    out.append(Result("ssh tooling in image", PASS, "ssh, scp, ssh-keygen present"))
+
+    # Key present in the pepper-ssh-key volume?
+    rc, so, se = run(["docker", "exec", container, "ls", "-l", "/home/user/.ssh/id_ed25519"])
+    if rc != 0:
+        out.append(Result(
+            "ssh key in volume",
+            FAIL,
+            (se or so).strip() or "id_ed25519 missing",
+            fix="./install/setup_pepper_ssh_key.sh <pepper-ip>",
+        ))
+        return out
+    out.append(Result("ssh key in volume", PASS, "id_ed25519 present"))
+
+    if not pepper_ip:
+        out.append(Result("PEPPER_IP set", SKIP, "add PEPPER_IP=<ip> to .env to test ssh/scp"))
+        return out
+
+    # Non-interactive login (BatchMode + short timeout so this doesn't hang)
+    ssh_common = [
+        "-o", "BatchMode=yes",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "ConnectTimeout=5",
+        "-i", "/home/user/.ssh/id_ed25519",
+    ]
+    rc, so, se = run(
+        ["docker", "exec", container, "ssh"] + ssh_common + ["nao@%s" % pepper_ip, "echo OK && hostname"],
+        timeout=15,
+    )
+    if rc != 0:
+        hint = "install/setup_pepper_ssh_key.sh %s" % pepper_ip
+        err = (se or so).strip().splitlines()[-1] if (se or so).strip() else "ssh failed"
+        out.append(Result("ssh nao@%s" % pepper_ip, FAIL, err, fix=hint))
+        return out
+    out.append(Result("ssh nao@%s" % pepper_ip, PASS, so.strip().replace("\n", " | ")))
+
+    # scp round-trip: write a marker, verify it appears on Pepper, delete it.
+    marker = "pepper-doctor-%d.txt" % int(time.time())
+    remote = "/tmp/%s" % marker
+    payload = "pepper-portal-doctor probe\n"
+
+    rc, so, se = run(
+        ["docker", "exec", container, "sh", "-c",
+         "printf '%s' > /tmp/%s && "
+         "scp -B -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 "
+         "-i /home/user/.ssh/id_ed25519 /tmp/%s nao@%s:%s"
+         % (payload, marker, marker, pepper_ip, remote)],
+        timeout=20,
+    )
+    if rc != 0:
+        out.append(Result("scp probe", FAIL, (se or so).strip() or "scp failed",
+                          fix="check nao@%s disk space / /tmp write permission" % pepper_ip))
+        return out
+    out.append(Result("scp probe (upload)", PASS, "%s -> nao@%s:%s" % (marker, pepper_ip, remote)))
+
+    # Verify + remove the marker so we don't leave litter on Pepper
+    rc, so, se = run(
+        ["docker", "exec", container, "ssh"] + ssh_common
+        + ["nao@%s" % pepper_ip, "cat %s && rm -f %s" % (remote, remote)],
+        timeout=15,
+    )
+    if rc == 0 and payload.strip() in so:
+        out.append(Result("scp probe (verify+cleanup)", PASS, "content matched and cleaned up"))
+    else:
+        out.append(Result(
+            "scp probe (verify+cleanup)",
+            WARN,
+            (se or so).strip() or "cat/rm returned non-zero",
+            fix="scp landed but verify step failed; try `ssh nao@%s ls /tmp/%s`" % (pepper_ip, marker),
+        ))
+    return out
+
+
 # ---------------- driver ----------------
 
 GROUPS = [
@@ -590,6 +699,7 @@ GROUPS = [
     ("ollama", lambda: check_ollama(load_env()), "reachability, models, real load test"),
     ("stt", lambda: check_stt(load_env()), "engine, ALSA devices, 1s round-trip"),
     ("portal", lambda: check_portal(load_env()), "Flask reachability and internal services"),
+    ("pepper-ssh", lambda: check_pepper_ssh(load_env()), "SSH key + ssh/scp round-trip to Pepper"),
 ]
 
 

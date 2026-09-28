@@ -1698,62 +1698,79 @@ def api_stop_audio():
     return jsonify({"ok": True})
 
 
-# --- Media uploads (drag-and-drop audio/video onto the portal) ---
-# Audio is scp'd onto Pepper into one canonical folder so scenes can
-# reference it by bare filename (see pepper_core.scripter._resolve_audio_path).
-# Video stays on the portal and is served over HTTP for tablet playback.
+# --- Media (drag-and-drop onto the portal) ---
+# Everything lands in media/ (a mirror of Pepper's wav folder) and a
+# background worker pushes it onto the robot -- see pepper_core/media_store.py.
+
+if media_store is not None:
+    # Start the sync worker now rather than on the first page load, so files
+    # copied into media/ by hand reach PEPPER_IP with no browser open.
+    media_store.request_sync()
+
+
+def _media_unavailable():
+    if media_store is None:
+        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
+    return None
+
 
 @app.route("/api/media", methods=["GET"])
 @json_endpoint
-def api_list_media():
-    if media_store is None:
-        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
-    kind = request.args.get("kind") or None
-    return jsonify({"ok": True, "media": media_store.list_media(kind)})
+def api_media():
+    unavailable = _media_unavailable()
+    if unavailable:
+        return unavailable
+    media_store.set_robot(request.args.get("ip"))
+    return jsonify(dict(media_store.status(), ok=True))
 
 
 @app.route("/api/media/upload", methods=["POST"])
 @json_endpoint
 def api_upload_media():
-    if media_store is None:
-        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
+    unavailable = _media_unavailable()
+    if unavailable:
+        return unavailable
     uploaded = request.files.get("file")
     if uploaded is None or not uploaded.filename:
         return jsonify({"ok": False, "error": "No file provided"}), 400
-    ip = (request.form.get("ip") or "").strip() or None
-    entry = media_store.save_upload(uploaded, uploaded.filename, ip=ip)
-    return jsonify({"ok": True, "media": entry})
+    media_store.set_robot(request.form.get("ip"))
+    rel = media_store.save_upload(uploaded, uploaded.filename, request.form.get("folder"))
+    # remote_path is what the scripter needs: the file's absolute location on
+    # Pepper after the sync worker copies it over.
+    return jsonify({"ok": True, "path": rel, "remote_path": media_store.robot_path(rel)})
 
 
-@app.route("/api/media/<media_id>/resync", methods=["POST"])
+@app.route("/api/media/sync", methods=["POST"])
 @json_endpoint
-def api_resync_media(media_id):
-    if media_store is None:
-        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
+def api_media_sync():
+    unavailable = _media_unavailable()
+    if unavailable:
+        return unavailable
     data = request.get_json(force=True, silent=True) or {}
-    ip = (data.get("ip") or "").strip()
-    if not ip:
-        return jsonify({"ok": False, "error": "'ip' is required"}), 400
-    entry = media_store.resync_media(media_id, ip)
-    return jsonify({"ok": True, "media": entry})
+    media_store.set_robot(data.get("ip"))
+    media_store.request_sync()
+    return jsonify({"ok": True})
 
 
-@app.route("/api/media/<media_id>", methods=["DELETE"])
+@app.route("/api/media/delete", methods=["POST"])
 @json_endpoint
-def api_delete_media(media_id):
-    if media_store is None:
-        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
+def api_media_delete():
+    unavailable = _media_unavailable()
+    if unavailable:
+        return unavailable
     data = request.get_json(force=True, silent=True) or {}
-    ip = (data.get("ip") or "").strip() or None
-    entry = media_store.delete_media(media_id, ip=ip)
-    return jsonify({"ok": True, "media": entry})
+    media_store.set_robot(data.get("ip"))
+    remote_error = media_store.delete_file(data.get("path") or "")
+    return jsonify({"ok": True, "remote_error": remote_error})
 
 
-@app.route("/media/video/<path:filename>", methods=["GET"])
-def api_media_video(filename):
-    if media_store is None or media_store.video_path(filename) is None:
+# Serves media/ over HTTP -- how Pepper's tablet (showWebview) plays video.
+@app.route("/media/<path:rel>", methods=["GET"])
+def media_file(rel):
+    path = media_store.local_file(rel) if media_store is not None else None
+    if path is None:
         return jsonify({"ok": False, "error": "Not found"}), 404
-    return send_from_directory(media_store.VIDEO_DIR, filename)
+    return send_from_directory(os.path.dirname(path), os.path.basename(path))
 
 
 @app.route("/api/run-animation", methods=["POST"])

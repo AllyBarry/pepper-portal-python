@@ -32,13 +32,21 @@ This manual `ssh`/`scp` dance is what the Media tab's drag-and-drop upload (belo
 
 ### Media uploads (drag-and-drop, SSH key setup)
 
-The Media tab's Upload card lets you drag an audio or video file onto the portal:
+The Media tab's Upload card lets you drag files onto the portal from any browser on the network:
 
-- **Audio** (`.wav`, `.mp3`, `.ogg`) is `scp`'d by the portal container into one fixed folder on Pepper: `/data/home/nao/.local/share/wav/uploads/`. Every scene in the Scripts editor can then reference it by bare filename (e.g. `{"audiofile": "greeting.wav"}`) — no path needed, and no need to know it lives under `.../wav/uploads/`. Use the "Insert audio" picker in the Scenes card to add a reference without typing the filename either.
-- **Video** (`.mp4`, `.mov`, `.webm`, `.m4v`) is *not* copied to Pepper — it's stored on the portal and served over HTTP, since tablet playback (`ALTabletService.showWebview`) just points Pepper's tablet browser at a URL. Video playback itself (wiring up the "show on tablet" action) is still a follow-up, not wired into the scripting editor yet.
-- Everything uploaded is tracked in one manifest so the portal — and the scene editor's picker — always knows what exists, without re-deriving it from Pepper's filesystem on every load.
+```
+your PC --HTTP--> Jetson: ./media/<folder>/<file> --ssh (background)--> Pepper: /data/home/nao/.local/share/wav/<folder>/<file>
+```
 
-The `scp` part needs a passwordless SSH key from the portal container to Pepper (the container can't sit at an interactive password prompt). **One-time setup, once per machine running the portal** (laptop, Jetson, Pi — each has its own key):
+- Everything goes into `media/` in the repo root (gitignored, bind-mounted into the portal container at `/home/user/media`), in the folder you pick (default `uploads/`). The upload returns as soon as the file is on the Jetson; a background worker then copies whatever Pepper is missing. Any file type is copied (e.g. a `.txt` for testing), but only `.wav`, `.mp3` and `.ogg` show up as playable.
+- `media/` mirrors Pepper's wav folder path for path, so you can also copy files into it by hand on the Jetson (`cp -r Conditions_recordings media/`); the worker picks them up within `PEPPER_SYNC_INTERVAL` seconds (default 60) or straight away with **Sync now**.
+- The **Files on Pepper** card compares the two sides: *On Pepper*, *Queued*/*Uploading*, *Failed* (with the SSH error and a Retry), and *Pepper only* for files already on the robot that the Jetson didn't put there. Pepper-only files can be played but not deleted from the portal; deleting a managed file removes it from both sides.
+- The Audio card's dropdown and the scene editor's "Insert audio" picker list every audio file on Pepper; the picker inserts the full path. A bare `{"audiofile": "greeting.wav"}` with no `audio_source` still resolves to `.../wav/uploads/greeting.wav`.
+- The portal also serves the folder over HTTP at `/media/<folder>/<file>`, which is how Pepper's tablet (`ALTabletService.showWebview`) can play a video.
+
+The worker syncs to whichever Pepper IP the page last sent (or `PEPPER_IP` in `.env` until then). It compares files by size and modification time, so re-uploading a file with the same name replaces it on Pepper too.
+
+The copy onto Pepper needs a passwordless SSH key from the portal container to Pepper (the container can't sit at an interactive password prompt). **One-time setup, once per machine running the portal** (laptop, Jetson, Pi — each has its own key):
 
 ```bash
 ./install/setup_pepper_ssh_key.sh 192.168.1.5
@@ -56,7 +64,7 @@ docker volume rm pepper-portal-python_pepper-ssh-key   # volume name may be pref
 ./install/setup_pepper_ssh_key.sh 192.168.1.5
 ```
 
-Uploaded media and the manifest live in the `pepper-media` Docker volume, separate from the SSH key, so they survive independently.
+Media lives in the `media/` folder, separate from the SSH key volume, so they survive independently.
 
 ## Pepper's tablet (landing page + Wi-Fi setup)
 
