@@ -325,6 +325,137 @@ def check_network(env):
     return out
 
 
+# ---------------- pepper access point routing ----------------
+
+def _nm_firewall_backend():
+    """Effective NetworkManager firewall-backend ('' when left at default)."""
+    rc, so, _ = run(["NetworkManager", "--print-config"])
+    if rc != 0:
+        return ""
+    m = re.search(r"^\s*firewall-backend\s*=\s*(\S+)", so, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def _kernel_has_nft_nat():
+    """True/False from /proc/config.gz, None when the kernel config is unreadable."""
+    import gzip
+    try:
+        with gzip.open("/proc/config.gz", "rt") as fh:
+            cfg = fh.read()
+    except Exception:
+        return None
+    return bool(re.search(r"^CONFIG_NFT_NAT=[ym]", cfg, re.M)) and \
+        bool(re.search(r"^CONFIG_NFT_MASQ=[ym]", cfg, re.M))
+
+
+def check_ap(env):
+    """The pepper-ap hotspot runs in NetworkManager "shared" mode: NM hands out
+    DHCP via dnsmasq and NATs 192.168.50.0/24 out of whatever holds the default
+    route (Wi-Fi or ethernet). The Tegra kernel lacks nftables NAT, so NM must
+    use its iptables firewall backend or the masquerade rule silently fails.
+    """
+    out = []
+    con = env.get("PEPPER_AP_CON", "pepper-ap")
+
+    rc, so, se = run(["nmcli", "-g", "802-11-wireless.mode,ipv4.method,ipv4.addresses,connection.interface-name",
+                      "connection", "show", con])
+    if rc != 0:
+        out.append(Result("AP profile '%s'" % con, FAIL, (se or so).strip() or "not found",
+                          fix="create it per README section 'Create the Pepper Access Point'"))
+        return out
+    mode, method, addr, iface = (so.splitlines() + ["", "", "", ""])[:4]
+    ok = mode == "ap" and method == "shared"
+    out.append(Result("AP profile '%s'" % con, PASS if ok else FAIL,
+                      "mode=%s ipv4.method=%s %s on %s" % (mode, method, addr, iface or "?"),
+                      fix="sudo nmcli con modify %s 802-11-wireless.mode ap ipv4.method shared" % con if not ok else ""))
+
+    rc, so, _ = run(["nmcli", "-g", "GENERAL.CONNECTION,GENERAL.STATE", "device", "show", iface]) if iface else (1, "", "")
+    lines = so.splitlines() + ["", ""]
+    active = rc == 0 and lines[0] == con and lines[1].startswith("100")
+    out.append(Result("AP active", PASS if active else FAIL,
+                      "%s: %s" % (iface, lines[1] or "unknown"),
+                      fix="sudo nmcli connection up %s" % con if not active else ""))
+    if not active:
+        return out
+
+    # IP forwarding, globally and on the AP interface
+    try:
+        fwd = open("/proc/sys/net/ipv4/ip_forward").read().strip()
+        if_fwd = open("/proc/sys/net/ipv4/conf/%s/forwarding" % iface).read().strip()
+        ok = fwd == "1" and if_fwd == "1"
+        out.append(Result("IP forwarding", PASS if ok else FAIL, "global=%s %s=%s" % (fwd, iface, if_fwd),
+                          fix="sudo nmcli connection up %s (shared mode enables it)" % con if not ok else ""))
+    except Exception as e:
+        out.append(Result("IP forwarding", FAIL, str(e)))
+
+    # Upstream: the default route must leave through something other than the AP
+    rc, so, _ = run(["ip", "route", "show", "default"])
+    m = re.search(r"\bdev (\S+)", so)
+    upstream = m.group(1) if m else ""
+    ok = bool(upstream) and upstream != iface
+    out.append(Result("upstream uplink", PASS if ok else FAIL,
+                      "default via %s" % upstream if upstream else "no default route",
+                      fix="connect wlP1p1s0 (Wi-Fi) or enP8p1s0 (ethernet) to a network with internet" if not ok else ""))
+
+    # Kernel forwarding decision for a packet arriving from an AP client
+    rc, so, se = run(["ip", "-4", "-brief", "addr", "show", iface])
+    m = re.search(r"(\d+\.\d+\.\d+)\.(\d+)/", so)
+    if m and upstream:
+        client = "%s.%d" % (m.group(1), 254 if m.group(2) != "254" else 253)
+        rc, so, se = run(["ip", "route", "get", "1.1.1.1", "from", client, "iif", iface])
+        ok = rc == 0 and ("dev %s" % upstream) in so
+        out.append(Result("client route lookup", PASS if ok else FAIL,
+                          so.splitlines()[0].strip() if rc == 0 else (se or so).strip(),
+                          fix="kernel refuses to forward AP traffic; check IP forwarding and rp_filter" if not ok else ""))
+
+    # NAT: NM's firewall backend must match what this kernel supports
+    backend = _nm_firewall_backend()
+    nft_nat = _kernel_has_nft_nat()
+    effective = backend or "nftables (default)"
+    if nft_nat is False and backend != "iptables":
+        out.append(Result("NM firewall backend", FAIL,
+                          "%s, but kernel lacks CONFIG_NFT_NAT/NFT_MASQ" % effective,
+                          fix="printf '[main]\\nfirewall-backend=iptables\\n' | sudo tee /etc/NetworkManager/conf.d/99-firewall-backend.conf && sudo systemctl restart NetworkManager"))
+    else:
+        out.append(Result("NM firewall backend", PASS, effective))
+
+    # Did NM's firewall setup fail since it last started?
+    rc, so, _ = run(["systemctl", "show", "NetworkManager", "-p", "ActiveEnterTimestamp", "--value"])
+    since = so.strip()
+    rc, so, _ = run(["journalctl", "-u", "NetworkManager", "--no-pager", "-o", "cat"]
+                    + (["--since", since] if since else ["-b"]), timeout=15)
+    if rc == 0:
+        errs = [l for l in so.splitlines() if re.search(r"firewall: .*(failed|error)", l, re.I)]
+        out.append(Result("NM firewall errors", FAIL if errs else PASS,
+                          errs[-1][:160] if errs else "none since NetworkManager started",
+                          fix="journalctl -u NetworkManager -b | grep firewall" if errs else ""))
+    else:
+        out.append(Result("NM firewall errors", SKIP, "journal not readable (add user to adm group)"))
+
+    # The masquerade rule itself needs root to read; use it when sudo is passwordless
+    subnet = re.sub(r"\.\d+/", ".0/", addr) if addr else ""
+    rc, so, se = run(["sudo", "-n", "iptables", "-t", "nat", "-S", "POSTROUTING"])
+    if rc == 0:
+        masq = [l for l in so.splitlines() if "MASQUERADE" in l and subnet and subnet in l]
+        out.append(Result("NAT masquerade rule", PASS if masq else FAIL,
+                          masq[0] if masq else "no MASQUERADE for %s" % subnet,
+                          fix="sudo systemctl restart NetworkManager" if not masq else ""))
+    else:
+        out.append(Result("NAT masquerade rule", SKIP, "needs root: sudo iptables -t nat -S POSTROUTING | grep %s" % subnet))
+
+    # DHCP server and connected clients
+    rc, so, _ = run(["pgrep", "-af", "dnsmasq.*%s" % re.escape(iface)])
+    out.append(Result("AP DHCP (dnsmasq)", PASS if rc == 0 else FAIL,
+                      "running" if rc == 0 else "not running",
+                      fix="sudo nmcli connection up %s" % con if rc != 0 else ""))
+    rc, so, _ = run(["iw", "dev", iface, "station", "dump"])
+    if rc == 0:
+        n = len(re.findall(r"^Station ", so, re.M))
+        out.append(Result("AP clients", PASS, "%d associated" % n))
+
+    return out
+
+
 # ---------------- docker / compose ----------------
 
 def check_docker():
@@ -695,6 +826,7 @@ GROUPS = [
     ("host", check_host, "OS, memory, disk, thermals"),
     ("hardware", check_hardware, "USB, mics, webcam, network links"),
     ("network", lambda: check_network(load_env()), "interfaces, routes, Pepper reachability"),
+    ("ap", lambda: check_ap(load_env()), "pepper-ap hotspot: DHCP, forwarding, NAT to upstream"),
     ("docker", check_docker, "daemon, compose, container health"),
     ("ollama", lambda: check_ollama(load_env()), "reachability, models, real load test"),
     ("stt", lambda: check_stt(load_env()), "engine, ALSA devices, 1s round-trip"),

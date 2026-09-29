@@ -975,11 +975,36 @@ sudo nmcli connection modify pepper-ap \
     ipv6.method disabled
 ```
 
+Make NetworkManager use iptables for the shared-mode NAT. NetworkManager defaults to
+nftables, but the Jetson's Tegra kernel is built without `CONFIG_NFT_NAT`/`CONFIG_NFT_MASQ`,
+so the masquerade rule silently fails to install (`journalctl -u NetworkManager` shows
+`firewall: nft ... command failed ... nat_postrouting`) and AP clients get DHCP but no
+upstream access. The legacy iptables NAT modules are available and are what Docker uses too:
+
+```bash
+printf '[main]\nfirewall-backend=iptables\n' | \
+    sudo tee /etc/NetworkManager/conf.d/99-firewall-backend.conf
+sudo systemctl restart NetworkManager
+```
+
 Start the AP:
 
 ```bash
 sudo nmcli connection up pepper-ap
 ```
+
+Let the portal container reach Pepper through the AP. Shared mode rejects forwarded
+traffic into the AP that didn't start on the AP subnet, so the host can ping Pepper but
+the container gets `Destination Port Unreachable`. This installs a NetworkManager
+dispatcher hook that allows Docker-bridge traffic every time the AP comes up:
+
+```bash
+sudo ./install/setup_ap_docker_forward.sh
+docker exec pepper_portal ping -c2 <pepper-ip>
+```
+
+See [docs/container-to-pepper-networking.md](docs/container-to-pepper-networking.md) for a
+step-by-step explanation of why this is needed.
 
 The Jetson MA14H interface should now use:
 
