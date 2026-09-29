@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 Native host-side helper that lets the portal (running inside Docker) drive
-the Jetson's wifi over `nmcli`, for the "choose wifi" screen on Pepper's
-tablet (see src/app/templates/tablet_wifi.html).
+the Jetson's wifi over `nmcli`, for the portal's Network workspace (the
+lab-network picker for the Jetson's internal NIC; see
+src/app/routes/network_routes.py).
 
 This deliberately does NOT run in a container. Reconfiguring the host's own
 wifi radio needs the host's network namespace and NetworkManager's D-Bus
@@ -41,8 +42,11 @@ import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOST = os.environ.get("PEPPER_WIFI_HELPER_HOST", "0.0.0.0")
-PORT = int(os.environ.get("PEPPER_WIFI_HELPER_PORT", "8766"))
+# 8767, not 8766: 8766 is where .env publishes speech-to-text on this Jetson.
+PORT = int(os.environ.get("PEPPER_WIFI_HELPER_PORT", "8767"))
 IFACE = os.environ.get("PEPPER_WIFI_IFACE", "wlP1p1s0")
+# Reported read-only in /overview; never reconfigured by this helper.
+AP_IFACE = os.environ.get("PEPPER_AP_IFACE", "wlx088af19321e3")
 ROUTE_METRIC = os.environ.get("PEPPER_WIFI_ROUTE_METRIC", "").strip() or None
 AUTH_TOKEN = os.environ.get("PEPPER_WIFI_HELPER_TOKEN", "").strip() or None
 NMCLI_TIMEOUT = int(os.environ.get("PEPPER_WIFI_NMCLI_TIMEOUT", "25"))
@@ -113,6 +117,51 @@ def interface_status():
     return {"device": IFACE, "type": None, "state": "unknown", "connection": None}
 
 
+def device_overview():
+    """
+    Read-only: state, connection and IPv4 of every wifi/ethernet device, with a
+    role -- "uplink" (IFACE, the one /connect changes), "ap" (Pepper's access
+    point) or "other".
+    """
+    rc, out, err = run_nmcli([
+        "-t", "-f",
+        "GENERAL.DEVICE,GENERAL.TYPE,GENERAL.STATE,GENERAL.CONNECTION,IP4.ADDRESS,IP4.GATEWAY",
+        "device", "show",
+    ])
+    if rc != 0:
+        raise RuntimeError(err.strip() or "nmcli device show failed (rc=%d)" % rc)
+    devices = []
+    current = None
+    for line in out.splitlines() + [""]:
+        if not line.strip():
+            if current and current.get("type") in ("wifi", "ethernet"):
+                devices.append(current)
+            current = None
+            continue
+        key, _, value = line.partition(":")
+        value = unescape_terse(value)
+        if key == "GENERAL.DEVICE":
+            current = {"device": value, "addresses": [], "gateway": None}
+            current["role"] = ("uplink" if value == IFACE else
+                               "ap" if value == AP_IFACE else "other")
+        elif current is None:
+            continue
+        elif key == "GENERAL.TYPE":
+            current["type"] = value
+        elif key == "GENERAL.STATE":
+            # "100 (connected)" -> "connected"
+            current["state"] = value.split("(", 1)[-1].rstrip(")") if "(" in value else value
+        elif key == "GENERAL.CONNECTION":
+            current["connection"] = value or None
+        elif key.startswith("IP4.ADDRESS"):
+            current["addresses"].append(value)
+        elif key == "IP4.GATEWAY":
+            current["gateway"] = value or None
+    order = {"uplink": 0, "ap": 1, "other": 2}
+    devices.sort(key=lambda d: (order[d["role"]], d["device"]))
+    return devices
+
+
 def connect(ssid, password):
     args = ["device", "wifi", "connect", ssid, "ifname", IFACE]
     if password:
@@ -169,6 +218,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/status":
             try:
                 self.respond(200, {"ok": True, "status": interface_status()})
+            except Exception as exc:
+                self.respond(500, {"ok": False, "error": str(exc)})
+            return
+        if self.path == "/overview":
+            try:
+                self.respond(200, {"ok": True, "uplink_interface": IFACE, "ap_interface": AP_IFACE,
+                                   "devices": device_overview()})
             except Exception as exc:
                 self.respond(500, {"ok": False, "error": str(exc)})
             return

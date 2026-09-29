@@ -708,6 +708,27 @@ def check_portal(env):
             detail = svc.get("detail") or svc.get("url", "")
             out.append(Result("portal svc: %s" % name, PASS if ok else FAIL, str(detail)))
 
+    pepper_ip = env.get("PEPPER_IP") or os.environ.get("PEPPER_IP", "")
+    if pepper_ip:
+        status, body, err = http_json(base + "/api/tablet/status?ip=" + pepper_ip, timeout=20)
+        if status != 200 or not isinstance(body, dict) or not body.get("ok"):
+            out.append(Result("pepper tablet", WARN, err or (body or {}).get("error") or "HTTP %d" % status))
+        elif body.get("available"):
+            out.append(Result("pepper tablet", PASS, "online; pages load from %s" % body.get("base_url")))
+        else:
+            out.append(Result("pepper tablet", WARN,
+                              "ALTabletService not running (tablet offline or unlinked from the head)",
+                              fix="restart the tablet, or reboot Pepper"))
+    else:
+        out.append(Result("pepper tablet", SKIP, "PEPPER_IP not set in .env"))
+
+    status, body, err = http_json("http://127.0.0.1:8767/health", timeout=3)
+    if status == 200 and isinstance(body, dict) and body.get("ok"):
+        out.append(Result("wifi helper", PASS, "interface %s" % body.get("interface")))
+    else:
+        out.append(Result("wifi helper", WARN, err or "HTTP %d" % status,
+                          fix="sudo ./install/setup_wifi_helper.sh  (needed for the portal's Network page)"))
+
     return out
 
 

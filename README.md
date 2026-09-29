@@ -2,6 +2,34 @@
 
 This repository provides an easy-to-use web-based interface for controlling animations and audio files on a Pepper robot.
 
+## Code layout
+
+```
+src/robot/     the ONLY code that talks to Pepper (NAOqi + SSH). One class per job:
+               speech, audio, motion, behaviors, awareness, camera, microphone,
+               tablet, system, files, network -- composed by robot.Robot.
+src/app/       the Flask portal. routes/ holds one blueprint per area and only
+               translates HTTP into robot calls; flask_app.py keeps the local-AI
+               features. tablet_content.py = what the tablet can show.
+src/app/scripts/  runnable scripts (use `import robot`)
+src/scenes/    JSON choreography run by robot.scenes
+src/tests/     unit tests with fake NAOqi services
+```
+
+```python
+import robot
+pepper = robot.connect("192.168.50.226")
+pepper.speech.say("Hello")
+pepper.motion.run_animation("animations/Stand/Gestures/Hey_1")
+pepper.tablet.play_video("http://192.168.50.1:8081/media/video/tour.mp4")
+```
+
+Nothing outside `src/robot/` imports `qi` or opens SSH to the robot. Unit tests (Python 2, in the container):
+
+```bash
+docker exec -w /home/user/src/tests pepper_portal python2 -m unittest discover -s . -p 'test_*.py'
+```
+
 **Prerequisites:**
 - [Docker](https://www.docker.com)
 - A Pepper robot
@@ -35,14 +63,16 @@ This manual `ssh`/`scp` dance is what the Media tab's drag-and-drop upload (belo
 The Media tab's Upload card lets you drag files onto the portal from any browser on the network:
 
 ```
-your PC --HTTP--> Jetson: ./media/<folder>/<file> --ssh (background)--> Pepper: /data/home/nao/.local/share/wav/<folder>/<file>
+your PC --HTTP--> Jetson: ./media/<folder>/<file>
+                      audio  --ssh (background)--> Pepper: /data/home/nao/.local/share/wav/<folder>/<file>
+                      video/images stay on the Jetson  --HTTP /media/...--> Pepper's tablet
 ```
 
-- Everything goes into `media/` in the repo root (gitignored, bind-mounted into the portal container at `/home/user/media`), in the folder you pick (default `uploads/`). The upload returns as soon as the file is on the Jetson; a background worker then copies whatever Pepper is missing. Any file type is copied (e.g. a `.txt` for testing), but only `.wav`, `.mp3` and `.ogg` show up as playable.
+- Everything goes into `media/` in the repo root (gitignored, bind-mounted into the portal container at `/home/user/media`), in the folder you pick (default `uploads/`). The upload returns as soon as the file is on the Jetson; a background worker then copies whatever Pepper is missing. Only audio (`.wav`, `.mp3`, `.ogg`) is copied to Pepper, because NAOqi only plays sound files stored on the robot. Videos, images and anything else stay on the Jetson (*On Jetson* in the file list) and are streamed to the tablet.
 - `media/` mirrors Pepper's wav folder path for path, so you can also copy files into it by hand on the Jetson (`cp -r Conditions_recordings media/`); the worker picks them up within `PEPPER_SYNC_INTERVAL` seconds (default 60) or straight away with **Sync now**.
 - The **Files on Pepper** card compares the two sides: *On Pepper*, *Queued*/*Uploading*, *Failed* (with the SSH error and a Retry), and *Pepper only* for files already on the robot that the Jetson didn't put there. Pepper-only files can be played but not deleted from the portal; deleting a managed file removes it from both sides.
 - The Audio card's dropdown and the scene editor's "Insert audio" picker list every audio file on Pepper; the picker inserts the full path. A bare `{"audiofile": "greeting.wav"}` with no `audio_source` still resolves to `.../wav/uploads/greeting.wav`.
-- The portal also serves the folder over HTTP at `/media/<folder>/<file>`, which is how Pepper's tablet (`ALTabletService.showWebview`) can play a video.
+- The portal also serves the folder over HTTP at `/media/<folder>/<file>` (with Range support for seeking), which is how Pepper's tablet plays videos and shows images. Use **Show on tablet** next to a video or image.
 
 The worker syncs to whichever Pepper IP the page last sent (or `PEPPER_IP` in `.env` until then). It compares files by size and modification time, so re-uploading a file with the same name replaces it on Pepper too.
 
@@ -66,47 +96,38 @@ docker volume rm pepper-portal-python_pepper-ssh-key   # volume name may be pref
 
 Media lives in the `media/` folder, separate from the SSH key volume, so they survive independently.
 
-## Pepper's tablet (landing page + Wi-Fi setup)
+## Pepper's tablet and the lab network
 
-Pepper's chest tablet can be pointed at any URL (`ALTabletService.showWebview`), so the portal serves a small
-test landing page for it at `/tablet` -- the same Flask app as everything else, no separate service. From
-**Robot Control -> Tablet**, "Show on tablet" pushes it to Pepper; "Hide" clears it.
+Full explanation: [docs/internet-and-tablet.md](docs/internet-and-tablet.md).
 
-The landing page (`src/app/templates/tablet.html`) is deliberately just two tiles for now:
-- **Wi-Fi Setup** (`/tablet/wifi`) -- scans and connects the Jetson's own internet-facing wifi NIC.
-- **Open Portal** (`/`) -- the full control dashboard, for testing the tablet's browser against the real app.
+**Tablet** (portal → **Tablet**): choose what Pepper's chest tablet shows:
+- the **RAIL Lab** landing page (`/tablet`, `src/app/templates/tablet.html`), the default
+- a **video** or **image** from `media/`, streamed from the Jetson
+- any **website**; Pepper has internet through the Jetson
 
-**Addressing.** The tablet has to reach the portal over the LAN, not `localhost`. The portal figures out which of
-its own NICs actually routes to Pepper (a UDP "connect" to Pepper's IP, no packets sent, just used to read back
-the routing table's answer) and builds the URL from that plus `PORTAL_HOST_PORT` -- the Docker *host* port this
-service is published on, which the container can't discover on its own (`8081` for `pepper-portal`, `8088` for
-`pepper-portal-arm` -- set `PORTAL_HOST_PORT=8088` in `.env` on the ARM/Jetson deployment). Set
-`PORTAL_PUBLIC_BASE_URL` to skip auto-detection entirely.
+The tablet loads everything from `http://192.168.50.1:8081`, the Jetson's address on Pepper's access point. It
+can't use the container's own address (a Docker-internal `172.x`). Override with `PEPPER_AP_ADDRESS` or
+`PORTAL_PUBLIC_BASE_URL` in `.env`. If NAOqi's `ALTabletService` isn't running, the portal reports **Tablet
+offline**; restart the tablet or reboot Pepper.
 
-### Wi-Fi Setup screen
+**Network** (portal → **Network**): shows whether the Jetson and Pepper are online, and switches the lab Wi-Fi on
+the Jetson's **internal NIC** (`wlP1p1s0`, its internet uplink). Pepper's internet goes through that uplink, so it
+follows the switch. The Pepper access point (`wlx088af19321e3`, `192.168.50.1/24`) is never touched. Ping to the
+internet is blocked upstream, so the checks use a TCP connection instead.
 
-**This is about the Jetson's own internet uplink** (`wlP1p1s0`, its integrated wifi, per "Mercusys MA14H Wi-Fi
-Adapter Setup on Jetson" below) -- **not** the Mercusys MA14H USB dongle (`wlx088af19321e3`), which is already
-dedicated as the `pepper-ap` access point Pepper itself connects to at `192.168.50.1/24`. Those are two unrelated
-interfaces on the same Jetson; the Wi-Fi Setup screen never touches the dongle/AP side, and `iw dev` is how that
-distinction was determined on this hardware -- confirm the interface names before assuming they carry over.
-
-Scanning/connecting needs `nmcli`, which needs NetworkManager's D-Bus socket and the host's own network
-namespace -- access a container shouldn't be given (see `docker-compose.yaml`'s notes on why the portal isn't
-`network_mode: host`: it would also break reaching `ollama`/`speech-to-text` by Compose service name). So this
-runs as a small **native systemd service** on the Jetson, not a container:
+Changing Wi-Fi needs `nmcli` on the host (NetworkManager's D-Bus socket and the host network namespace). A container
+shouldn't be given that access, and `network_mode: host` would also break reaching `ollama`/`speech-to-text` by
+service name. So a small **native systemd service** does it:
 
 ```bash
-./install/setup_wifi_helper.sh            # uses wlP1p1s0 by default
-./install/setup_wifi_helper.sh wlAnother   # or name a different interface (`nmcli device status` to check)
+sudo ./install/setup_wifi_helper.sh            # uses wlP1p1s0 by default
+sudo ./install/setup_wifi_helper.sh wlAnother   # or name a different interface (`nmcli device status` to check)
 ```
 
-This installs `host_services/wifi_helper.py` as `pepper-wifi-helper.service`, listening on `:8766`. The portal
-container reaches it at `http://host.docker.internal:8766` (already wired in `docker-compose.yaml`'s
-`extra_hosts`); override with `WIFI_HELPER_BASE_URL`. Since this endpoint can reconfigure networking, set
-`WIFI_HELPER_TOKEN` (matched against `PEPPER_WIFI_HELPER_TOKEN` on the host side) if the Jetson's network isn't
-one you trust everyone on; it's fine unset for a first test on a private LAN, consistent with the rest of this
-app running without auth.
+This installs `host_services/wifi_helper.py` as `pepper-wifi-helper.service`, listening on `:8767` (not 8766,
+which `.env` gives to speech-to-text). The portal reaches it at `http://host.docker.internal:8767`; override with
+`WIFI_HELPER_BASE_URL`. Since it can reconfigure networking, set `WIFI_HELPER_TOKEN` (matched against
+`PEPPER_WIFI_HELPER_TOKEN` on the host side) if you don't trust everyone on the Jetson's network.
 
 Logs: `sudo journalctl -u pepper-wifi-helper.service -f`.
 

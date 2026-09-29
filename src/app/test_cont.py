@@ -2,7 +2,11 @@
 import argparse
 import os
 import time
-from pepper_core import PepperController
+import sys
+
+# src/ on the path so `import robot` works when run by hand too.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from robot.compat import PepperController  # noqa: E402
 
 
 def test_all(controller):

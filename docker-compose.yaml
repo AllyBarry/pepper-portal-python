@@ -27,9 +27,16 @@ x-pepper-portal: &pepper-portal
     # so on the ARM service (published on 8088, not 8081) set
     # PORTAL_HOST_PORT=8088 in .env.
     PORTAL_HOST_PORT: ${PORTAL_HOST_PORT:-8081}
-    # nmcli bridge for the tablet's Wi-Fi Setup screen -- runs natively on the
-    # host via systemd (install/setup_wifi_helper.sh), not in a container.
-    WIFI_HELPER_BASE_URL: ${WIFI_HELPER_BASE_URL:-http://host.docker.internal:8766}
+    # The tablet loads the portal at http://$PEPPER_AP_ADDRESS:$PORTAL_HOST_PORT
+    # (the Jetson's address on pepper-ap). PORTAL_PUBLIC_BASE_URL overrides the
+    # whole URL. See src/app/portal_address.py.
+    PEPPER_AP_ADDRESS: ${PEPPER_AP_ADDRESS:-192.168.50.1}
+    PORTAL_PUBLIC_BASE_URL: ${PORTAL_PUBLIC_BASE_URL:-}
+    # nmcli bridge for the portal's Network workspace (the Jetson's internal
+    # NIC) -- runs natively on the host via systemd
+    # (install/setup_wifi_helper.sh), not in a container. Port 8767 because
+    # 8766 is often taken by PEPPER_STT_HOST_PORT.
+    WIFI_HELPER_BASE_URL: ${WIFI_HELPER_BASE_URL:-http://host.docker.internal:8767}
     WIFI_HELPER_TOKEN: ${WIFI_HELPER_TOKEN:-}
     # Pepper to sync media/ to before anyone has opened the portal.
     # The portal switches to whatever IP the page is connected to after that.

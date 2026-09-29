@@ -1,21 +1,22 @@
 # -*- coding: utf-8 -*-
 import argparse
-from pepper_core import *
+import os
+import sys
+
+# src/ on the path so `import robot` works when run by hand too.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+import robot  # noqa: E402
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ip", default="192.168.1.8")
-    parser.add_argument("--port", type=int, default=9559)
+    parser.add_argument("--ip", default=os.environ.get("PEPPER_IP", "192.168.1.8"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PEPPER_PORT", "9559")))
     parser.add_argument("--scene", required=True, help="Path to JSON scene file")
-    parser.add_argument("--base", default="", help="Base folder for audio files")
-    parser.add_argument("--async", dest="use_async", action="store_true",
-                        help="Run non-blocking on robot (default blocks so events finish)")
     parser.add_argument("--quiet", action="store_true")
+    # Accepted (ignored) so the portal's generic --lang flag doesn't error.
+    parser.add_argument("--lang", "--language", dest="lang", default=None)
     args = parser.parse_args()
 
     print("[Main] Starting Pepper scene runner...")
-    ctrl = PepperController(ip=args.ip, port=args.port, verbose=True)
-    scripter = PepperScripter(controller=ctrl, blocking=(not args.use_async), verbose=(not args.quiet))
-    scripter.run_scene(args.scene, base=args.base)
+    robot.run_scene_file(robot.connect(args.ip, args.port), args.scene, verbose=not args.quiet)
     print("[Main] Scene finished.")
-

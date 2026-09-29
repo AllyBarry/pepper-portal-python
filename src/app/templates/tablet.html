@@ -4,57 +4,68 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>Pepper</title>
+  <title>RAIL Lab</title>
+  <!--
+    Pepper's default tablet page. Kept deliberately simple: no buttons, no
+    external assets (works with no internet), and plain CSS only -- the
+    NAOqi 2.5 tablet runs an old Android WebView (no CSS variables, clamp(),
+    or modern JS). Sized for the 1280x800 tablet.
+  -->
   <style>
-    :root { color-scheme: dark; }
-    * { box-sizing: border-box; }
     html, body {
-      height: 100%; margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-      background: radial-gradient(circle at 50% 20%, #131b30 0%, #070a12 70%);
-      color: #f5f8ff;
+      height: 100%; margin: 0; overflow: hidden;
+      font-family: "Roboto", "Helvetica Neue", Arial, sans-serif;
+      background: #0b1020;
+      color: #f4f6fb;
     }
     body {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      min-height: 100vh; padding: 2rem; text-align: center; gap: 2.5rem;
+      display: -webkit-box; display: -webkit-flex; display: flex;
+      -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column;
+      -webkit-box-align: center; -webkit-align-items: center; align-items: center;
+      -webkit-box-pack: center; -webkit-justify-content: center; justify-content: center;
+      text-align: center;
     }
-    h1 { font-size: clamp(2rem, 5vw, 3.2rem); margin: 0; letter-spacing: .02em; }
-    p.sub { margin: -1.5rem 0 0; color: #91a0bd; font-size: 1.1rem; }
-    .buttons { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }
-    a.tile {
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: .6rem; width: 260px; height: 200px; border-radius: 24px;
-      border: 1px solid rgba(154,177,221,.18);
-      background: rgba(18,24,40,.78);
-      color: #f5f8ff; text-decoration: none;
-      box-shadow: 0 12px 40px rgba(0,0,0,.28);
+    .glow {
+      position: absolute; left: 50%; top: 42%;
+      width: 760px; height: 760px; margin: -380px 0 0 -380px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(64, 140, 255, 0.28) 0%, rgba(64, 140, 255, 0) 62%);
+      -webkit-animation: breathe 6s ease-in-out infinite; animation: breathe 6s ease-in-out infinite;
     }
-    a.tile:active { background: rgba(100,229,255,.14); border-color: rgba(120,224,255,.4); }
-    .tile .icon { font-size: 2.6rem; }
-    .tile .label { font-size: 1.3rem; font-weight: 700; }
-    .tile .hint { font-size: .9rem; color: #91a0bd; }
-    .footer { color: #5b6a86; font-size: .85rem; }
+    .content { position: relative; }
+    .mark {
+      font-size: 168px; font-weight: 800; letter-spacing: 18px; line-height: 1;
+      margin: 0 0 0 18px; /* balance the trailing letter-spacing */
+    }
+    .mark span { color: #4d9bff; }
+    .rule {
+      width: 120px; height: 6px; border-radius: 3px; margin: 36px auto;
+      background: #4d9bff;
+    }
+    .welcome { font-size: 44px; font-weight: 300; margin: 0; color: #dfe6f5; }
+    .footer {
+      position: absolute; bottom: 36px; left: 0; right: 0;
+      font-size: 22px; color: #6f7c99; letter-spacing: 2px;
+    }
+    @-webkit-keyframes breathe {
+      0%, 100% { -webkit-transform: scale(0.92); opacity: 0.7; }
+      50% { -webkit-transform: scale(1.05); opacity: 1; }
+    }
+    @keyframes breathe {
+      0%, 100% { transform: scale(0.92); opacity: 0.7; }
+      50% { transform: scale(1.05); opacity: 1; }
+    }
   </style>
 </head>
 
 <body>
-  <div>
-    <h1>Hi, I'm Pepper</h1>
-    <p class="sub">What would you like to do?</p>
+  <div class="glow"></div>
+  <div class="content">
+    <h1 class="mark">RAIL<span>&nbsp;LAB</span></h1>
+    <div class="rule"></div>
+    <p class="welcome">Hi, I'm Pepper. Welcome to the lab!</p>
   </div>
-  <div class="buttons">
-    <a class="tile" href="/tablet/wifi">
-      <span class="icon">&#128246;</span>
-      <span class="label">Wi-Fi Setup</span>
-      <span class="hint">Connect this robot to a network</span>
-    </a>
-    <a class="tile" href="/">
-      <span class="icon">&#128421;</span>
-      <span class="label">Open Portal</span>
-      <span class="hint">Full control dashboard</span>
-    </a>
-  </div>
-  <div class="footer">Pepper Portal &middot; tablet test page</div>
+  <div class="footer">RAIL LAB &middot; PEPPER</div>
 </body>
 
 </html>

@@ -332,6 +332,8 @@
         <button class="nav-button" data-view="vision" onclick="showView('vision')"><span class="nav-icon">⌾</span><span>Vision</span></button>
         <button class="nav-button" data-view="control" onclick="showView('control')"><span class="nav-icon">◇</span><span>Robot Control</span></button>
         <button class="nav-button" data-view="media" onclick="showView('media')"><span class="nav-icon">♫</span><span>Media</span></button>
+        <button class="nav-button" data-view="tablet" onclick="showView('tablet')"><span class="nav-icon">▭</span><span>Tablet</span></button>
+        <button class="nav-button" data-view="network" onclick="showView('network')"><span class="nav-icon">⇅</span><span>Network</span></button>
         <button class="nav-button" data-view="diagnostics" onclick="showView('diagnostics')"><span class="nav-icon">⌁</span><span>Diagnostics</span></button>
       </nav>
       <div class="sidebar-footer">Pepper Portal<br>Local session · Private network</div>
@@ -358,6 +360,12 @@
       <div class="workspace-panel view-header" data-view="media" hidden>
         <div><div class="view-kicker">Playback</div><h1>Media</h1><p>Play audio already stored on Pepper and launch reusable robot scripts.</p></div>
       </div>
+      <div class="workspace-panel view-header" data-view="tablet" hidden>
+        <div><div class="view-kicker">Chest display</div><h1>Tablet</h1><p>Choose what Pepper's tablet shows: the RAIL Lab page, a video or image from Media, or a website.</p></div>
+      </div>
+      <div class="workspace-panel view-header" data-view="network" hidden>
+        <div><div class="view-kicker">Lab network</div><h1>Network</h1><p>Pick the Wi-Fi network the Jetson's internal NIC uses for internet. Pepper reaches the internet through it.</p></div>
+      </div>
       <div class="workspace-panel view-header" data-view="diagnostics" hidden>
         <div><div class="view-kicker">System trace</div><h1>Diagnostics</h1><p>Inspect local services, activity logs and script output while refining the experience.</p></div>
       </div>
@@ -383,21 +391,75 @@
     <div id="modeStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
 
-  <div class="card workspace-panel" data-view="control" hidden>
-    <h2>Tablet</h2>
-    <p class="muted">Show the test landing page (Wi-Fi setup / open portal) on Pepper's chest tablet, or a custom
-      path on this same portal.</p>
-    <div class="row">
-      <div>
-        <label for="tabletPath">Path on this portal</label>
-        <input id="tabletPath" placeholder="/tablet" value="/tablet" />
-      </div>
-      <div style="align-self:end">
-        <button class="primary-action" onclick="showTablet()">Show on tablet</button>
-        <button onclick="hideTablet()">Hide</button>
-      </div>
+  <div class="card workspace-panel" data-view="tablet" hidden>
+    <h2>Now showing</h2>
+    <div id="tabletState" class="muted">Checking the tablet&hellip;</div>
+    <div class="control-strip" style="margin-top:.75rem">
+      <button class="primary-action" onclick="showOnTablet('landing', 'rail-lab')">Show RAIL Lab page</button>
+      <button onclick="hideTablet()">Hide</button>
+      <button onclick="refreshTablet()">Refresh</button>
     </div>
     <div id="tabletStatus" class="muted" style="margin-top:.5rem"></div>
+  </div>
+
+  <div class="card workspace-panel" data-view="tablet" hidden>
+    <h2>Videos &amp; images</h2>
+    <p class="muted">Files in <code>media/</code> on the Jetson, streamed to the tablet over Pepper's access point.
+      Add more on the Media page.</p>
+    <div id="tabletCatalog" style="margin-top:.5rem"></div>
+  </div>
+
+  <div class="card workspace-panel" data-view="tablet" hidden>
+    <h2>Website</h2>
+    <p class="muted">Any address Pepper can reach. Internet sites work because Pepper gets internet through the Jetson.</p>
+    <div class="row">
+      <div style="flex:1; min-width:260px">
+        <label for="tabletUrl">Address</label>
+        <input id="tabletUrl" placeholder="https://www.wits.ac.za" />
+      </div>
+      <div style="align-self:end">
+        <button class="primary-action" onclick="showWebsiteOnTablet()">Show website</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card workspace-panel" data-view="network" hidden>
+    <h2>Internet</h2>
+    <div id="internetState" class="muted">Checking&hellip;</div>
+    <div class="control-strip" style="margin-top:.75rem">
+      <button onclick="refreshNetwork()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="card workspace-panel" data-view="network" hidden>
+    <h2>Lab Wi-Fi (Jetson internal NIC)</h2>
+    <p class="muted">This is the Jetson's own uplink. Pepper's access point is separate and isn't changed here.
+      <strong>If you're viewing this portal through the lab Wi-Fi, this page will drop while it switches</strong>;
+      reconnect at the Jetson's new address, or use Pepper's access point.</p>
+    <div id="uplinkState" class="muted" style="margin-top:.5rem"></div>
+    <div class="control-strip" style="margin-top:.75rem">
+      <button onclick="scanWifi()">Scan for networks</button>
+    </div>
+    <div id="wifiStatus" class="muted" style="margin-top:.5rem"></div>
+    <table id="wifiList" class="volume-table" style="margin-top:.5rem"></table>
+    <div id="wifiConnectPanel" hidden style="margin-top:.75rem">
+      <div class="row">
+        <div>
+          <label for="wifiPassword" id="wifiConnectLabel">Password</label>
+          <input id="wifiPassword" type="password" autocomplete="off" placeholder="Leave empty for open networks" />
+        </div>
+        <div style="align-self:end">
+          <button class="primary-action" onclick="connectWifi()">Connect</button>
+          <button onclick="closeWifiConnect()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card workspace-panel" data-view="network" hidden>
+    <h2>Interfaces</h2>
+    <p class="muted">Read-only. <code>ap</code> is Pepper's access point; the tablet loads the portal at the address below.</p>
+    <div id="interfaceList" style="margin-top:.5rem"></div>
   </div>
 
   <div class="card workspace-panel" id="visionCard" data-view="vision" hidden>
@@ -583,9 +645,10 @@
 
   <div class="card workspace-panel" data-view="media" hidden>
     <h2>Upload</h2>
-    <p class="muted">Drop any file here. It's stored on the Jetson in <code>media/</code> and copied onto Pepper in
-      the background, into the same folder under <code class="mono">/data/home/nao/.local/share/wav/</code>. Only .wav,
-      .mp3 and .ogg can be played; other files (a .txt for testing, video for the tablet) are copied as-is.</p>
+    <p class="muted">Drop any file here. It's stored on the Jetson in <code>media/</code>. Audio (.wav, .mp3, .ogg)
+      is copied onto Pepper in the background, into the same folder under
+      <code class="mono">/data/home/nao/.local/share/wav/</code>. Videos and images stay on the Jetson and are streamed
+      to the tablet (see the Tablet page).</p>
     <div class="row">
       <div>
         <label for="mediaFolder">Folder on Pepper (under wav/)</label>
@@ -602,9 +665,10 @@
   </div>
 
   <div class="card workspace-panel" data-view="media" hidden>
-    <h2>Files on Pepper</h2>
+    <h2>Files</h2>
     <p class="muted">What's in <code>media/</code> on the Jetson compared with Pepper's wav folder. Files
-      marked "Pepper only" were already on the robot; they can be played but not deleted from here.</p>
+      marked "Pepper only" were already on the robot; they can be played but not deleted from here.
+      "On Jetson" files (videos, images) are never copied to Pepper.</p>
     <div class="control-strip">
       <button onclick="syncMedia()">Sync now</button>
       <button onclick="refreshMedia()">Refresh</button>
@@ -797,6 +861,8 @@
       vision: 'Vision workspace',
       control: 'Robot control workspace',
       media: 'Media workspace',
+      tablet: 'Tablet workspace',
+      network: 'Network workspace',
       diagnostics: 'Diagnostics workspace'
     };
 
@@ -808,6 +874,8 @@
         button.classList.toggle('active', button.dataset.view === viewName);
       });
       document.getElementById('topbarContext').textContent = viewLabels[viewName] || 'Pepper workspace';
+      if (viewName === 'tablet') refreshTablet();
+      if (viewName === 'network') refreshNetwork();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -1942,30 +2010,222 @@
       } catch (e) { modeStatus.innerHTML = '<span class="err">' + e.message + '</span>'; log('Animation mode error: ' + e.message); }
     }
 
-    async function showTablet() {
+    // ----- Tablet: what Pepper's chest tablet shows (routes/tablet_routes.py) -----
+    async function getJSON(url) {
+      const res = await fetch(url, { cache: 'no-store' });
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch (e) {
+        throw new Error('HTTP ' + res.status + ': ' + text.slice(0, 120));
+      }
+      return json;
+    }
+
+    function robotQuery() {
+      return 'ip=' + encodeURIComponent(ipInput.value.trim()) + '&port=' + encodeURIComponent(portInput.value.trim() || '9559');
+    }
+
+    function describeShowing(item) {
+      if (!item) return 'Nothing the portal put there (the tablet may show its own screen).';
+      const labels = { landing: 'RAIL Lab page', video: 'Video', image: 'Image', web: 'Website' };
+      return '<strong>' + escapeHtml(labels[item.kind] || item.kind) + '</strong> &middot; ' +
+        escapeHtml(item.label || item.ref) + ' <span class="mono">' + escapeHtml(item.url || '') + '</span>' +
+        ' &middot; ' + timeAgo(item.shown_at);
+    }
+
+    async function refreshTablet() {
+      const state = document.getElementById('tabletState');
+      if (!ipInput.value.trim()) { state.innerHTML = '<span class="err">Connect to Pepper first.</span>'; return; }
+      try {
+        const data = await getJSON('/api/tablet/status?' + robotQuery());
+        if (!data.ok) throw new Error(data.error || 'Tablet status failed');
+        state.innerHTML = data.available
+          ? '<span class="ok">Tablet online.</span> ' + describeShowing(data.now_showing) +
+            '<br>Pages load from <span class="mono">' + escapeHtml(data.base_url) + '</span>'
+          : '<span class="err">Tablet offline: ALTabletService isn\'t running on Pepper. ' +
+            'Restart the tablet (or reboot Pepper), then Refresh.</span>';
+      } catch (e) {
+        state.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+      }
+      refreshTabletCatalog();
+    }
+
+    async function refreshTabletCatalog() {
+      const box = document.getElementById('tabletCatalog');
+      try {
+        const data = await getJSON('/api/tablet/catalog');
+        if (!data.ok) throw new Error(data.error || 'Catalog failed');
+        const media = data.items.filter(function (item) { return item.kind === 'video' || item.kind === 'image'; });
+        if (!media.length) {
+          box.innerHTML = '<p class="muted">No videos or images yet. Drop an .mp4 or .png on the Media page.</p>';
+          return;
+        }
+        const table = document.createElement('table');
+        table.className = 'volume-table';
+        media.forEach(function (item) {
+          const row = document.createElement('tr');
+          row.innerHTML = '<td class="volume-name">' + escapeHtml(item.label) + '</td>' +
+            '<td><span class="badge ' + (item.kind === 'video' ? 'video' : 'audio') + '">' + item.kind + '</span></td>';
+          const actions = document.createElement('td');
+          actions.className = 'volume-actions';
+          const btn = document.createElement('button');
+          btn.textContent = 'Show';
+          btn.onclick = function () { showOnTablet(item.kind, item.ref); };
+          actions.appendChild(btn);
+          row.appendChild(actions);
+          table.appendChild(row);
+        });
+        box.innerHTML = '';
+        box.appendChild(table);
+      } catch (e) {
+        box.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+      }
+    }
+
+    async function showOnTablet(kind, ref) {
       const status = document.getElementById('tabletStatus');
       const ip = ipInput.value.trim();
-      const port = (portInput.value.trim() || '9559');
-      const path = document.getElementById('tabletPath').value.trim() || '/tablet';
-      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
-      status.textContent = 'Showing on tablet…';
+      if (!ip) { status.innerHTML = '<span class="err">Connect to Pepper first.</span>'; return; }
+      status.textContent = 'Sending to tablet…';
       try {
-        const res = await postJSON('/api/tablet/show', { ip, port: Number(port), path });
-        status.innerHTML = '<span class="ok">Showing ' + res.url + '</span>';
+        const res = await postJSON('/api/tablet/show', { ip: ip, port: Number(portInput.value || 9559), kind: kind, ref: ref });
+        status.innerHTML = '<span class="ok">Showing ' + escapeHtml(res.url) + '</span>';
         log('Tablet showing: ' + res.url);
-      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; log('Tablet show error: ' + e.message); }
+      } catch (e) {
+        status.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+        log('Tablet show error: ' + e.message);
+      }
+      refreshTablet();
+    }
+
+    function showWebsiteOnTablet() {
+      let url = document.getElementById('tabletUrl').value.trim();
+      if (!url) return;
+      if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+      document.getElementById('tabletUrl').value = url;
+      showOnTablet('web', url);
     }
 
     async function hideTablet() {
       const status = document.getElementById('tabletStatus');
       const ip = ipInput.value.trim();
-      const port = (portInput.value.trim() || '9559');
-      if (!ip) { status.innerHTML = '<span class="err">Enter Pepper IP first.</span>'; return; }
+      if (!ip) { status.innerHTML = '<span class="err">Connect to Pepper first.</span>'; return; }
       try {
-        await postJSON('/api/tablet/hide', { ip, port: Number(port) });
-        status.innerHTML = '<span class="ok">Tablet hidden.</span>';
+        await postJSON('/api/tablet/hide', { ip: ip, port: Number(portInput.value || 9559) });
+        status.innerHTML = '<span class="ok">Tablet cleared.</span>';
         log('Tablet hidden.');
-      } catch (e) { status.innerHTML = '<span class="err">' + e.message + '</span>'; log('Tablet hide error: ' + e.message); }
+      } catch (e) {
+        status.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+        log('Tablet hide error: ' + e.message);
+      }
+      refreshTablet();
+    }
+
+    // ----- Network: lab Wi-Fi on the Jetson's internal NIC (routes/network_routes.py) -----
+    let selectedWifi = null;
+
+    function onlineBadge(online) {
+      return online ? '<span class="badge synced">online</span>' : '<span class="badge failed">offline</span>';
+    }
+
+    async function refreshNetwork() {
+      const internet = document.getElementById('internetState');
+      const uplink = document.getElementById('uplinkState');
+      const ifaces = document.getElementById('interfaceList');
+      internet.textContent = 'Checking…';
+      try {
+        const ip = ipInput.value.trim();
+        const data = await getJSON('/api/network/overview' + (ip ? '?' + robotQuery() : ''));
+        if (!data.ok) throw new Error(data.error || 'Network check failed');
+        let html = 'Jetson ' + onlineBadge(data.jetson_internet.online) +
+          (data.jetson_internet.online ? ' <span class="muted">' + data.jetson_internet.latency_ms + ' ms</span>'
+            : ' <span class="err">' + escapeHtml(data.jetson_internet.error || '') + '</span>');
+        if (data.pepper) {
+          html += '<br>Pepper (' + escapeHtml(data.pepper.ip) + ') ' + onlineBadge(data.pepper.internet.online) +
+            (data.pepper.internet.online ? '' : ' <span class="err">' + escapeHtml(data.pepper.internet.error || '') + '</span>');
+        }
+        html += '<br><span class="muted">Checked with a TCP connection to 1.1.1.1:443. Ping to the internet is blocked upstream, so it isn\'t a valid test.</span>';
+        internet.innerHTML = html;
+
+        if (data.helper_error) {
+          uplink.innerHTML = '<span class="err">' + escapeHtml(data.helper_error) + '</span>';
+          ifaces.innerHTML = '';
+          return;
+        }
+        const up = data.devices.filter(function (d) { return d.role === 'uplink'; })[0];
+        uplink.innerHTML = up
+          ? '<span class="mono">' + escapeHtml(up.device) + '</span> &middot; ' + escapeHtml(up.state || '') +
+            (up.connection ? ' to <strong>' + escapeHtml(up.connection) + '</strong>' : '') +
+            (up.addresses.length ? ' &middot; <span class="mono">' + escapeHtml(up.addresses.join(', ')) + '</span>' : '')
+          : 'Uplink interface ' + escapeHtml(data.uplink_interface || '?') + ' not found.';
+        const table = document.createElement('table');
+        table.className = 'volume-table';
+        data.devices.forEach(function (d) {
+          const row = document.createElement('tr');
+          row.innerHTML = '<td class="mono">' + escapeHtml(d.device) + '</td>' +
+            '<td><span class="badge ' + (d.role === 'other' ? 'remote' : 'audio') + '">' + d.role + '</span></td>' +
+            '<td class="muted">' + escapeHtml(d.state || '') + (d.connection ? ' &middot; ' + escapeHtml(d.connection) : '') + '</td>' +
+            '<td class="mono">' + escapeHtml(d.addresses.join(', ')) + '</td>';
+          table.appendChild(row);
+        });
+        ifaces.innerHTML = '<p class="muted">Tablet base URL: <span class="mono">' + escapeHtml(data.tablet_base_url) + '</span></p>';
+        ifaces.appendChild(table);
+      } catch (e) {
+        internet.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+      }
+    }
+
+    async function scanWifi() {
+      const status = document.getElementById('wifiStatus');
+      const list = document.getElementById('wifiList');
+      status.textContent = 'Scanning…';
+      list.innerHTML = '';
+      try {
+        const data = await getJSON('/api/wifi/networks');
+        if (!data.ok) throw new Error(data.error || 'Scan failed');
+        const nets = data.networks || [];
+        status.innerHTML = nets.length ? nets.length + ' network(s). Click one to connect.' : 'No networks found.';
+        nets.forEach(function (net) {
+          const row = document.createElement('tr');
+          row.style.cursor = 'pointer';
+          row.innerHTML = '<td class="volume-name">' + escapeHtml(net.ssid) + '</td>' +
+            '<td class="muted">' + (net.secure ? '🔒 ' : '') + net.signal + '%</td>' +
+            '<td>' + (net.in_use ? '<span class="badge synced">connected</span>' : '') + '</td>';
+          row.onclick = function () { openWifiConnect(net); };
+          list.appendChild(row);
+        });
+      } catch (e) {
+        status.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+      }
+    }
+
+    function openWifiConnect(net) {
+      selectedWifi = net;
+      document.getElementById('wifiConnectLabel').textContent = 'Password for ' + net.ssid;
+      document.getElementById('wifiPassword').value = '';
+      document.getElementById('wifiConnectPanel').hidden = false;
+    }
+
+    function closeWifiConnect() {
+      selectedWifi = null;
+      document.getElementById('wifiConnectPanel').hidden = true;
+    }
+
+    async function connectWifi() {
+      if (!selectedWifi) return;
+      const status = document.getElementById('wifiStatus');
+      const ssid = selectedWifi.ssid;
+      if (!confirm('Switch the Jetson\'s lab Wi-Fi to "' + ssid + '"? Anyone using the portal through the current network will be disconnected.')) return;
+      status.textContent = 'Connecting to ' + ssid + '… (this page may drop)';
+      try {
+        await postJSON('/api/wifi/connect', { ssid: ssid, password: document.getElementById('wifiPassword').value }, 60000);
+        status.innerHTML = '<span class="ok">Connected to ' + escapeHtml(ssid) + '.</span>';
+        log('Lab Wi-Fi switched to ' + ssid);
+        closeWifiConnect();
+        refreshNetwork();
+      } catch (e) {
+        status.innerHTML = '<span class="err">' + escapeHtml(e.message) + '</span>';
+      }
     }
 
     // ----- Scripts UI -----
@@ -2387,7 +2647,8 @@
       uploading: ['pending', 'Uploading…'],
       failed: ['failed', 'Failed'],
       unknown: ['pending', 'Not checked'],
-      pepper_only: ['remote', 'Pepper only']
+      pepper_only: ['remote', 'Pepper only'],
+      jetson_only: ['video', 'On Jetson']
     };
     let mediaPollTimer = null;
 
@@ -2472,6 +2733,12 @@
             openBtn.title = 'Open the Jetson copy in a new tab';
             openBtn.onclick = function () { window.open('/media/' + f.path.split('/').map(encodeURIComponent).join('/'), '_blank'); };
             actions.appendChild(openBtn);
+          }
+          if (f.managed && (f.kind === 'video' || f.kind === 'image')) {
+            const tabletBtn = document.createElement('button');
+            tabletBtn.textContent = 'Show on tablet';
+            tabletBtn.onclick = function () { showOnTablet(f.kind, f.path); };
+            actions.appendChild(tabletBtn);
           }
           if (f.state === 'failed') {
             const retryBtn = document.createElement('button');

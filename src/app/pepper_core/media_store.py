@@ -1,36 +1,48 @@
 # -*- coding: utf-8 -*-
 """
-media/ -- the portal's one media folder, a local mirror of Pepper's wav folder
-pushed onto the robot in the background.
+media/ -- the portal's one media folder.
 
     media/<rel>   (repo root, bind-mounted into the portal container)
-        -> ssh ->
-    /data/home/nao/.local/share/wav/<rel>   (on Pepper, over the dongle AP)
+      audio (.wav/.mp3/.ogg) -> ssh -> /data/home/nao/.local/share/wav/<rel> on Pepper
+      everything else (video, images, ...) stays on the Jetson and is served
+      over HTTP at /media/<rel>, which is how the tablet shows it.
+
+Audio has to be on the robot because ALAudioPlayer only plays local files.
+The tablet can't read Pepper's disk, so videos and images are streamed from
+the Jetson over the AP instead of filling Pepper's small disk.
 
 Anything dropped on the portal (or copied into the folder by hand on the
-Jetson) lands here first, then the sync worker pushes whatever Pepper is
-missing. Uploads never wait on the robot, and a Pepper that is off or out of
-range just leaves files queued until the next pass. The portal also serves
-the folder over HTTP (/media/<rel>), which is how the tablet plays video.
+Jetson) lands here first, then the sync worker pushes whatever audio Pepper
+is missing. Uploads never wait on the robot, and a Pepper that is off or out
+of range just leaves files queued until the next pass. All robot I/O goes
+through robot.files (SSH).
 
 The folder itself is the source of truth -- there is no manifest. Each pass
 lists Pepper's wav tree over SSH and compares it by (size, mtime). Each push
 stamps the remote copy with the local mtime, so the comparison doesn't depend
 on Pepper's clock (which often has no NTP on the AP network).
 
-Any file type is allowed (e.g. a .txt for testing); only AUDIO_EXTENSIONS are
-offered for playback. Files that exist on Pepper but not locally are shown
-read-only -- the portal only deletes files it manages.
+Any file type is allowed; only AUDIO_EXTENSIONS are synced and offered for
+playback. Files that exist on Pepper but not locally are shown read-only --
+the portal only deletes files it manages.
 """
 from __future__ import print_function
 
 import os
 import re
-import subprocess
+import sys
 import threading
 import time
 import traceback
 import uuid
+
+_SRC_DIR_FOR_IMPORT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _SRC_DIR_FOR_IMPORT not in sys.path:
+    sys.path.insert(0, _SRC_DIR_FOR_IMPORT)
+
+from robot.files import DEFAULT_FOLDER, WAV_ROOT as PEPPER_WAV_ROOT, robot_path  # noqa: E402,F401
+from robot.robot import Robot  # noqa: E402
+from robot.shell import error_text as _proc_error  # noqa: E402
 
 
 def _log(level, msg):
@@ -42,37 +54,11 @@ _SRC_DIR = os.path.dirname(os.path.dirname(_APP_DIR))           # .../src (or /h
 # Sibling of src/: <repo>/media on the host, /home/user/media in the
 # container (docker-compose.yaml bind-mounts one onto the other).
 MEDIA_ROOT = os.environ.get("MEDIA_ROOT") or os.path.join(os.path.dirname(_SRC_DIR), "media")
-PEPPER_WAV_ROOT = (
-    os.environ.get("PEPPER_WAV_ROOT") or "/data/home/nao/.local/share/wav"
-).rstrip("/") + "/"
-# Where drops go when no folder is given. Scenes resolve a bare
-# {"audiofile": "x.wav"} against this (see scripter._resolve_audio_path).
-DEFAULT_FOLDER = "uploads"
-PEPPER_SSH_USER = os.environ.get("PEPPER_SSH_USER", "nao")
 SYNC_INTERVAL_SECONDS = int(os.environ.get("PEPPER_SYNC_INTERVAL", "60"))
-_SSH_CONNECT_TIMEOUT = int(os.environ.get("PEPPER_SSH_TIMEOUT", "10"))
 
 AUDIO_EXTENSIONS = (".wav", ".mp3", ".ogg")
-
-# The container's key lives in /home/user/.ssh (pepper-ssh-key volume). We
-# pass -i explicitly because ssh looks up default identities under the
-# effective user's real homedir (/root/.ssh for root), not $HOME. Host key
-# checking is off: one robot on a private AP whose host key changes when
-# it is re-imaged.
-_SSH_KEY_PATH = os.environ.get(
-    "PEPPER_SSH_KEY", "/home/user/.ssh/id_ed25519"
-)
-_SSH_OPTS = [
-    "-i", _SSH_KEY_PATH,
-    "-o", "IdentitiesOnly=yes",
-    "-o", "BatchMode=yes",
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=/dev/null",
-    "-o", "LogLevel=ERROR",
-    "-o", "ConnectTimeout=%d" % _SSH_CONNECT_TIMEOUT,
-    "-o", "ServerAliveInterval=5",
-    "-o", "ServerAliveCountMax=2",
-]
+VIDEO_EXTENSIONS = (".mp4", ".webm", ".m4v", ".mov", ".ogv")
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
 
 
 class MediaError(Exception):
@@ -110,12 +96,30 @@ def _local_path(rel):
     return os.path.join(MEDIA_ROOT, *rel.split("/"))
 
 
-def robot_path(rel):
-    return PEPPER_WAV_ROOT + rel
+def _ext(rel):
+    return os.path.splitext(rel)[1].lower()
 
 
 def is_audio(rel):
-    return os.path.splitext(rel)[1].lower() in AUDIO_EXTENSIONS
+    return _ext(rel) in AUDIO_EXTENSIONS
+
+
+def is_video(rel):
+    return _ext(rel) in VIDEO_EXTENSIONS
+
+
+def is_image(rel):
+    return _ext(rel) in IMAGE_EXTENSIONS
+
+
+def kind(rel):
+    if is_audio(rel):
+        return "audio"
+    if is_video(rel):
+        return "video"
+    if is_image(rel):
+        return "image"
+    return "other"
 
 
 def _match_media_owner(path):
@@ -165,82 +169,8 @@ def _scan_local():
     return files
 
 
-# ---------------------------------------------------------------- ssh
-
-def _shquote(s):
-    return "'" + s.replace("'", "'\\''") + "'"
-
-
-def _proc_error(exc):
-    output = getattr(exc, "output", None)
-    if output:
-        try:
-            return output.decode("utf-8", "replace").strip()[-400:]
-        except Exception:
-            return str(output)[-400:]
-    return str(exc)
-
-
-def _target(ip):
-    return "%s@%s" % (PEPPER_SSH_USER, ip)
-
-
-def _ssh(ip, command):
-    return subprocess.check_output(
-        ["ssh"] + _SSH_OPTS + [_target(ip), command], stderr=subprocess.STDOUT
-    )
-
-
-def _list_remote(ip):
-    """{rel: (size, int mtime)} for every file under PEPPER_WAV_ROOT on Pepper.
-
-    Pepper ships BusyBox find, which lacks GNU `-printf`. We combine find with
-    stat (BusyBox stat does support -c) and strip the `./` prefix in Python.
-    """
-    root = PEPPER_WAV_ROOT
-    out = _ssh(
-        ip,
-        "mkdir -p %s && cd %s && find . -type f ! -name '.*' "
-        "-exec stat -c '%%n\t%%s\t%%Y' {} +"
-        % (_shquote(root), _shquote(root)),
-    )
-    if not isinstance(out, str):
-        out = out.decode("utf-8", "replace")
-    files = {}
-    for line in out.splitlines():
-        parts = line.split("\t")
-        if len(parts) != 3:
-            continue
-        rel, size, mtime = parts
-        if rel.startswith("./"):
-            rel = rel[2:]
-        try:
-            files[rel] = (int(size), int(mtime))
-        except ValueError:
-            continue
-    return files
-
-
-def _push(ip, rel, mtime):
-    """
-    Stream the file over ssh into a hidden temp name, stamp it with the local
-    mtime, then rename. Pepper never shows a half-written file, and piping
-    through `cat` sidesteps scp's remote-path quoting (which differs between
-    the legacy and SFTP scp protocols) for names with spaces.
-    """
-    dest = robot_path(rel)
-    directory, name = dest.rsplit("/", 1)
-    tmp = "%s/.upload-%s" % (directory, name)
-    command = "cat > %s && touch -d @%d %s && mv -f %s %s" % (
-        _shquote(tmp), mtime, _shquote(tmp), _shquote(tmp), _shquote(dest))
-    with open(_local_path(rel), "rb") as source:
-        proc = subprocess.Popen(
-            ["ssh"] + _SSH_OPTS + [_target(ip), command],
-            stdin=source, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        )
-        output = proc.communicate()[0]
-    if proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, "ssh", output)
+def _files(ip):
+    return Robot(ip).files
 
 
 # ---------------------------------------------------------------- sync worker
@@ -314,7 +244,7 @@ def _sync_pass():
         return
 
     try:
-        remote = _list_remote(ip)
+        remote = _files(ip).list()
     except Exception as e:
         with _state.lock:
             _state.remote_error = _proc_error(e)
@@ -324,7 +254,10 @@ def _sync_pass():
         return
 
     local = _scan_local()
-    todo = sorted(rel for rel, meta in local.items() if _needs_push(meta, remote.get(rel)))
+    todo = sorted(
+        rel for rel, meta in local.items()
+        if is_audio(rel) and _needs_push(meta, remote.get(rel))
+    )
     with _state.lock:
         _state.remote = remote
         _state.remote_ip = ip
@@ -341,9 +274,9 @@ def _sync_pass():
             _state.last_sync_at = time.time()
         return
 
-    dirs = sorted(set(robot_path(rel).rsplit("/", 1)[0] for rel in todo))
+    files = _files(ip)
     try:
-        _ssh(ip, "mkdir -p " + " ".join(_shquote(d) for d in dirs))
+        files.make_dirs(todo)
     except Exception as e:
         with _state.lock:
             for rel in todo:
@@ -362,7 +295,7 @@ def _sync_pass():
             # or deleted since the scan.
             st = os.stat(_local_path(rel))
             meta = (st.st_size, int(st.st_mtime))
-            _push(ip, rel, meta[1])
+            files.push(_local_path(rel), rel, meta[1])
             err = None
             _log("INFO", "Pushed %s -> %s" % (rel, robot_path(rel)))
         except OSError:
@@ -432,9 +365,11 @@ def delete_file(rel):
         ip = _state.ip
         _state.errors.pop(rel, None)
     remote_error = None
-    if ip:
+    if not is_audio(rel):
+        pass  # never copied to Pepper
+    elif ip:
         try:
-            _ssh(ip, "rm -f %s" % _shquote(robot_path(rel)))
+            _files(ip).delete(rel)
             with _state.lock:
                 if _state.remote is not None:
                     _state.remote.pop(rel, None)
@@ -483,6 +418,8 @@ def status():
         r = (remote or {}).get(rel)
         if l is None:
             state = "pepper_only"
+        elif not is_audio(rel):
+            state = "jetson_only"  # served to the tablet from the Jetson
         elif rel == current:
             state = "uploading"
         elif rel in errors:
@@ -502,7 +439,8 @@ def status():
             "error": errors.get(rel),
             "managed": l is not None,
             "audio": is_audio(rel),
-            "robot_path": robot_path(rel),
+            "kind": kind(rel),
+            "robot_path": robot_path(rel) if is_audio(rel) or l is None else None,
         })
     info["busy"] = bool(current or queue) or any(f["state"] == "queued" for f in files)
     info["files"] = files

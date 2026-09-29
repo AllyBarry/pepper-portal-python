@@ -1,6 +1,10 @@
-# scripts/example_wave.py
+# scripts/Informal.py
 from __future__ import print_function
-import os, argparse, qi, time
+import os, sys, argparse, time
+
+# src/ on the path so `import robot` works when run by hand too.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+import robot  # noqa: E402
 
 HOME_AUDIO_PATH = "/data/home/nao/.local/share/wav/"
 
@@ -33,83 +37,82 @@ def main():
     parser.add_argument("--language", type=str, default=os.environ.get("SCRIPT_LANG", "English"))
     args = parser.parse_args()
 
-    sess = qi.Session()
-    sess.connect("tcp://%s:%d" % (args.ip, args.port))
-    audio_player_service = sess.service("ALAudioPlayer")
-    anim = sess.service("ALAnimationPlayer")
+    pepper = robot.connect(args.ip, args.port)
+    audio = pepper.audio
+    motion = pepper.motion
 
     lang = args.language
 
     # Pre-load all audios to prevent delays
     print("Loading Audio Files...")
-    audio1 = audio_player_service.loadFile(HOME_AUDIO_PATH + audio_files[lang]["1"])
-    audio2 = audio_player_service.loadFile(HOME_AUDIO_PATH + audio_files[lang]["2"])
-    audio3 = audio_player_service.loadFile(HOME_AUDIO_PATH + audio_files[lang]["3"])
-    audio4 = audio_player_service.loadFile(HOME_AUDIO_PATH + audio_files[lang]["4"])
-    audio5 = audio_player_service.loadFile(HOME_AUDIO_PATH + audio_files[lang]["5"])
-    audio6 = audio_player_service.loadFile(HOME_AUDIO_PATH + audio_files[lang]["6"])
+    audio1 = audio.load(HOME_AUDIO_PATH + audio_files[lang]["1"])
+    audio2 = audio.load(HOME_AUDIO_PATH + audio_files[lang]["2"])
+    audio3 = audio.load(HOME_AUDIO_PATH + audio_files[lang]["3"])
+    audio4 = audio.load(HOME_AUDIO_PATH + audio_files[lang]["4"])
+    audio5 = audio.load(HOME_AUDIO_PATH + audio_files[lang]["5"])
+    audio6 = audio.load(HOME_AUDIO_PATH + audio_files[lang]["6"])
 
     print("Playing Audio File 1...")
     # Audio File #1
     # play the audio, this will return right away
-    future = audio_player_service.play(audio1, _async=True)
-    anim.run("animations/Stand/Gestures/Hey_4")
-    anim.run("animations/Stand/Gestures/Give_3")
-    anim.run("animations/Stand/Gestures/Give_5")
-    anim.run("animations/Stand/Gestures/Give_3")
-    anim.run("animations/Stand/Gestures/Explain_8")
+    future = audio.play_loaded(audio1, wait=False)
+    motion.run_animation("animations/Stand/Gestures/Hey_4")
+    motion.run_animation("animations/Stand/Gestures/Give_3")
+    motion.run_animation("animations/Stand/Gestures/Give_5")
+    motion.run_animation("animations/Stand/Gestures/Give_3")
+    motion.run_animation("animations/Stand/Gestures/Explain_8")
     # wait the end of the audio
     future.value()
 
     # Audio File #2
     print("Playing Audio File 2...")
-    future = audio_player_service.play(audio2, _async=True)
-    anim.run("animations/Stand/Gestures/ShowSky_5")
-    anim.run("animations/Stand/Gestures/Explain_4")
-    anim.run("animations/Stand/Gestures/Explain_5")
+    future = audio.play_loaded(audio2, wait=False)
+    motion.run_animation("animations/Stand/Gestures/ShowSky_5")
+    motion.run_animation("animations/Stand/Gestures/Explain_4")
+    motion.run_animation("animations/Stand/Gestures/Explain_5")
     # wait the end of the audio
     future.value()
 
     # Audio File #3
-    future = audio_player_service.play(audio3, _async=True)
-    anim.run("animations/Stand/Gestures/Give_5")
-    anim.run("animations/Stand/Gestures/Give_3")
-    anim.run("animations/Stand/Gestures/Give_4")
-    anim.run("animations/Stand/Gestures/Give_3")
-    anim.run("animations/Stand/Gestures/Give_3")
-    anim.run("animations/Stand/Gestures/Excited_1")
-    # anim.run("animations/Stand/Gestures/Enthusiastic_5")
-    anim.run("animations/Stand/Gestures/Give_3")
+    future = audio.play_loaded(audio3, wait=False)
+    motion.run_animation("animations/Stand/Gestures/Give_5")
+    motion.run_animation("animations/Stand/Gestures/Give_3")
+    motion.run_animation("animations/Stand/Gestures/Give_4")
+    motion.run_animation("animations/Stand/Gestures/Give_3")
+    motion.run_animation("animations/Stand/Gestures/Give_3")
+    motion.run_animation("animations/Stand/Gestures/Excited_1")
+    # motion.run_animation("animations/Stand/Gestures/Enthusiastic_5")
+    motion.run_animation("animations/Stand/Gestures/Give_3")
     # wait the end of the audio
     future.value()
 
     # Audio File #4
-    future = audio_player_service.play(audio4, _async=True)
-    anim.run("animations/Stand/Gestures/Explain_8")
-    anim.run("animations/Stand/Gestures/Explain_11")
-    anim.run("animations/Stand/Gestures/Thinking_1")
-    anim.run("animations/Stand/Gestures/Explain_3")
+    future = audio.play_loaded(audio4, wait=False)
+    motion.run_animation("animations/Stand/Gestures/Explain_8")
+    motion.run_animation("animations/Stand/Gestures/Explain_11")
+    motion.run_animation("animations/Stand/Gestures/Thinking_1")
+    motion.run_animation("animations/Stand/Gestures/Explain_3")
     # wait the end of the audio
     future.value()
 
     # Audio File #5
-    future = audio_player_service.play(audio5, _async=True)
-    anim.run("animations/Stand/Gestures/Explain_8")
-    anim.run("animations/Stand/Gestures/Far_1")
-    anim.run("animations/Stand/Gestures/Explain_11")
-    anim.run("animations/Stand/Gestures/Give_5")
-    anim.run("animations/Stand/Gestures/Thinking_8")
-    anim.run("animations/Stand/Gestures/Give_3")
+    future = audio.play_loaded(audio5, wait=False)
+    motion.run_animation("animations/Stand/Gestures/Explain_8")
+    motion.run_animation("animations/Stand/Gestures/Far_1")
+    motion.run_animation("animations/Stand/Gestures/Explain_11")
+    motion.run_animation("animations/Stand/Gestures/Give_5")
+    motion.run_animation("animations/Stand/Gestures/Thinking_8")
+    motion.run_animation("animations/Stand/Gestures/Give_3")
     # wait the end of the audio
     future.value()
 
     # Audio File #6
-    future = audio_player_service.play(audio6, _async=True)
-    anim.run("animations/Stand/Gestures/Give_4")
-    anim.run("animations/Stand/Gestures/Thinking_8")
-    anim.run("animations/Stand/Gestures/Me_7")
-    anim.run("animations/Stand/Gestures/YouKnowWhat_5")
-    anim.run("animations/Stand/Gestures/Explain_11")
+    future = audio.play_loaded(audio6, wait=False)
+    motion.run_animation("animations/Stand/Gestures/Give_4")
+    motion.run_animation("animations/Stand/Gestures/Thinking_8")
+    motion.run_animation("animations/Stand/Gestures/Me_7")
+    motion.run_animation("animations/Stand/Gestures/YouKnowWhat_5")
+    motion.run_animation("animations/Stand/Gestures/Explain_11")
     # wait the end of the audio
     future.value()
 

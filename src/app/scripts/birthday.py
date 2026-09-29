@@ -6,33 +6,37 @@ Triggered from the web portal - receives --ip/--port; name comes via
 BIRTHDAY_NAME env var (set by the portal's "Name" field).
 """
 from __future__ import print_function
-import os, argparse, qi, random
+import os, sys, argparse, random
+
+# src/ on the path so `import robot` works when run by hand too.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+import robot  # noqa: E402
 
 
 DANCE_BEHAVIOR = "dancesequence-20054b/behavior_1"
 
 
-def run_anim(anim, path):
+def run_anim(motion, path):
     """Run an animation synchronously; swallow errors so the sequence continues."""
     try:
         print("  anim:", path)
-        anim.run(path)
+        motion.run_animation(path)
     except Exception as e:
         print("  (skipped %s: %s)" % (path, e))
 
 
-def say(tts, text):
+def say(speech, text):
     print("  say:", text)
     try:
-        tts.say(text)
+        speech.say(text)
     except Exception as e:
         print("  (tts failed: %s)" % (e,))
 
 
-def say_async(tts, text):
+def say_async(speech, text):
     print("  say (async):", text)
     try:
-        return tts.say(text, _async=True)
+        return speech.say(text, wait=False)
     except Exception as e:
         print("  (tts failed: %s)" % (e,))
         return None
@@ -65,22 +69,16 @@ def main():
     name = (args.name or "").strip()
     addressee = (" " + name) if name else ""
 
-    sess = qi.Session()
-    sess.connect("tcp://%s:%d" % (args.ip, args.port))
-
-    tts = sess.service("ALTextToSpeech")
-    anim = sess.service("ALAnimationPlayer")
-    motion = sess.service("ALMotion")
-    try:
-        bm = sess.service("ALBehaviorManager")
-    except Exception:
-        bm = None
+    pepper = robot.connect(args.ip, args.port)
+    tts = pepper.speech
+    anim = pepper.motion
+    bm = pepper.behaviors
 
     # Make sure motors are on for the gestures.
     try:
-        if not motion.robotIsWakeUp():
+        if not pepper.motion.is_awake():
             print("Waking up Pepper...")
-            motion.wakeUp()
+            pepper.motion.wake()
     except Exception:
         pass
 
@@ -123,18 +121,17 @@ def main():
     wait(fut)
 
     # 6. Dance finale (installed Choregraphe behavior, if present)
-    if bm is not None:
-        try:
-            if bm.isBehaviorInstalled(DANCE_BEHAVIOR):
-                print("Step 6: dance finale -", DANCE_BEHAVIOR)
-                say(tts, "Let's dance!")
-                bm.runBehavior(DANCE_BEHAVIOR)
-            else:
-                print("Step 6: dance skipped (%s not installed)" % DANCE_BEHAVIOR)
-                # fall back to something fun
-                run_anim(anim, "animations/Stand/Waiting/FunnyDancer_1")
-        except Exception as e:
-            print("Step 6: dance error:", e)
+    try:
+        if bm.is_installed(DANCE_BEHAVIOR):
+            print("Step 6: dance finale -", DANCE_BEHAVIOR)
+            say(tts, "Let's dance!")
+            bm.run(DANCE_BEHAVIOR)
+        else:
+            print("Step 6: dance skipped (%s not installed)" % DANCE_BEHAVIOR)
+            # fall back to something fun
+            run_anim(anim, "animations/Stand/Waiting/FunnyDancer_1")
+    except Exception as e:
+        print("Step 6: dance error:", e)
 
     # 7. Wish + kisses
     print("Step 7: make a wish")

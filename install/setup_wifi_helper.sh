@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs host_services/wifi_helper.py as a systemd service on this machine
 # (the Jetson), so the portal container can ask it to scan/connect the
-# internal wifi NIC on Pepper's tablet "Wi-Fi Setup" screen.
+# internal wifi NIC from the portal's Network workspace.
 #
 # This deliberately runs natively, not in Docker: reconfiguring the host's
 # own wifi radio needs NetworkManager's D-Bus socket and the host network
@@ -54,7 +54,7 @@ nmcli device status | grep -q "^$IFACE " || {
 echo "Writing $UNIT_PATH ..."
 sudo tee "$UNIT_PATH" >/dev/null <<EOF
 [Unit]
-Description=Pepper portal wifi helper (nmcli bridge for the tablet Wi-Fi Setup screen)
+Description=Pepper portal wifi helper (nmcli bridge for the portal Network workspace)
 After=network.target NetworkManager.service
 
 [Service]
@@ -77,7 +77,7 @@ sudo systemctl enable --now pepper-wifi-helper.service
 echo ""
 echo "Done. Checking it answers:"
 sleep 1
-curl -fsS http://127.0.0.1:8766/health && echo "" || {
+curl -fsS http://127.0.0.1:8767/health && echo "" || {
   echo "Helper didn't respond -- check: sudo systemctl status pepper-wifi-helper.service" >&2
   exit 1
 }

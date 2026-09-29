@@ -1,21 +1,13 @@
 """
-Pepper Control Web App (Flask)
---------------------------------
-A tiny Flask app that serves a single web page with buttons to:
-- Prompt for Pepper IP and port on first load, auto-connect
-- Test connection to Pepper
-- Play/stop a WAV file that lives on Pepper
-- Run built-in or custom animations (sync or async)
-- Stop all animations
-
-Prereqs
-- Python (the client machine) with the NAOqi Python SDK available (module `qi`).
-  * Ensure your PYTHONPATH points to the NAOqi SDK lib, e.g. (example path):
-    export PYTHONPATH="$PYTHONPATH:/path/to/pynaoqi-python2.7-2.5.7.1-linux64/lib/python2.7/site-packages"
-- Flask: pip install Flask==3.0.0
+Pepper Portal (Flask)
+---------------------
+App wiring plus the local-intelligence features (Ollama chat and vision,
+speech-to-text, conversation turns). Everything else lives in routes/, one
+blueprint per area, and every call to Pepper goes through the robot package
+(src/robot/) -- this file never touches NAOqi directly.
 
 Run
-  python2 app.py
+  python2 src/app/flask_app.py
 Then open: http://127.0.0.1:5000
 
 NOTE: This app intentionally has no auth and trusts the provided Pepper IP. If you expose it on a network, add auth and allow-listing.
@@ -24,42 +16,29 @@ NOTE: This app intentionally has no auth and trusts the provided Pepper IP. If y
 from __future__ import print_function
 
 import base64
-import io
 import json
 import os
 import random
 import re
-import struct
 import sys
-import subprocess
 import time
-import traceback
-import urllib2
-import zlib
-from functools import wraps
-import itertools
 import threading
+import urllib2
 
-from flask import Flask, Response, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template
 
-try:
-    import qi  # NAOqi Python SDK
-    _QI_IMPORT_ERROR = None
-except Exception:
-    qi = None
-    _QI_IMPORT_ERROR = traceback.format_exc()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))       # src/app
+SRC_DIR = os.path.dirname(BASE_DIR)                          # src (robot package)
+for _path in (SRC_DIR, BASE_DIR):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-
-try:
-    from pepper_core import PepperController, PepperScripter
-    from pepper_core import media_store
-except Exception:
-    PepperController = None
-    PepperScripter = None
-    media_store = None
+import robot  # noqa: E402
+from robot.camera import CAMERA_IDS, CAMERA_RESOLUTIONS  # noqa: E402
+from robot.gestures import GESTURES as PEPPER_GESTURES, animation_for  # noqa: E402
+from pepper_core import media_store  # noqa: E402
+import routes  # noqa: E402
+from routes.common import json_endpoint  # noqa: E402
 
 app = Flask(
     __name__,
@@ -68,40 +47,13 @@ app = Flask(
 )
 app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MEDIA_MAX_MB", "300")) * 1024 * 1024
 
-SCRIPTS_DIR = os.environ.get("SCRIPTS_DIR") or os.path.join(BASE_DIR, "scripts")
-SCENES_DIR = os.environ.get("SCENES_DIR") or os.path.join(os.path.dirname(BASE_DIR), "scenes")
+routes.register(app)
+# Start the media sync worker now rather than on the first page load, so audio
+# copied into media/ by hand reaches PEPPER_IP with no browser open.
+media_store.request_sync()
 
-for _directory in (SCRIPTS_DIR, SCENES_DIR):
-    if not os.path.isdir(_directory):
-        try:
-            os.makedirs(_directory)
-        except OSError:
-            pass
-
-# --- Simple in-memory session cache per (ip, port) (optional) ---
-_sessions = {}
-_sessions_lock = threading.Lock()
-_connect_test_lock = threading.Lock()
-_jobs = {}
-_job_counter = itertools.count(1)
-_jobs_lock = threading.Lock()
-_camera_counter = itertools.count(1)
-_camera_lock = threading.Lock()
-_vision_awareness_lock = threading.Lock()
-_vision_awareness_states = {}
 _ollama_generation_lock = threading.Lock()
-_microphone_lock = threading.Lock()
-_microphone_state_lock = threading.Lock()
-_microphone_cancel_events = {}
 
-CAMERA_IDS = {"top": 0, "bottom": 1}
-CAMERA_RESOLUTIONS = {
-    "160x120": 0,  # QQVGA
-    "320x240": 1,  # QVGA
-    "640x480": 2,  # VGA
-}
-RGB_COLOR_SPACE = 11
-CAMERA_TIMEOUT_MS = 5000
 OLLAMA_BASE_URL = os.environ.get(
     "OLLAMA_BASE_URL", "http://host.docker.internal:11434"
 ).rstrip("/")
@@ -122,54 +74,12 @@ LOCAL_STT_BASE_URL = os.environ.get(
 LOCAL_STT_TIMEOUT_SECONDS = int(os.environ.get("LOCAL_STT_TIMEOUT_SECONDS", "180"))
 LOCAL_STT_SETUP_URL = "https://pypi.org/project/faster-whisper/"
 
-# Pepper's tablet (ALTabletService.showWebview) has to reach the portal over
-# the LAN, not localhost, so it needs to know its own externally-reachable
-# URL. PORTAL_HOST_PORT is the Docker *host* port (set per-service in
-# docker-compose.yaml -- the container can't discover its own published port).
-# PORTAL_PUBLIC_BASE_URL overrides the whole thing when auto-detection picks
-# the wrong NIC or DNS/mDNS is preferred over a raw IP.
-PORTAL_HOST_PORT = os.environ.get("PORTAL_HOST_PORT", "8081")
-PORTAL_PUBLIC_BASE_URL = (os.environ.get("PORTAL_PUBLIC_BASE_URL") or "").rstrip("/") or None
-
-# Native host-side helper (systemd, not a container -- see
-# host_services/wifi_helper.py) that runs `nmcli` against the Jetson's
-# internal wifi NIC. host.docker.internal is already wired in
-# docker-compose.yaml's extra_hosts for exactly this kind of host-side call.
-WIFI_HELPER_BASE_URL = os.environ.get(
-    "WIFI_HELPER_BASE_URL", "http://host.docker.internal:8766"
-).rstrip("/")
-WIFI_HELPER_TIMEOUT_SECONDS = int(os.environ.get("WIFI_HELPER_TIMEOUT_SECONDS", "20"))
-WIFI_HELPER_TOKEN = os.environ.get("WIFI_HELPER_TOKEN", "").strip() or None
-
-PEPPER_MIC_SAMPLE_RATE = 16000
 PEPPER_MIC_MIN_SECONDS = 2
 PEPPER_MIC_MAX_SECONDS = 45
-PEPPER_MIC_SILENCE_SECONDS = float(os.environ.get("PEPPER_MIC_SILENCE_SECONDS", "3"))
-PEPPER_MIC_ENERGY_THRESHOLD = float(os.environ.get("PEPPER_MIC_ENERGY_THRESHOLD", "1200"))
-PEPPER_MIC_ENERGY_POLL_SECONDS = 0.17
-PEPPER_MIC_ROBOT_PATH = "/data/home/nao/pepper_portal_mic.wav"
-PEPPER_MIC_FILE_KEY = "pepper_portal_mic.wav"
-PEPPER_CONNECT_TIMEOUT_MS = int(os.environ.get("PEPPER_CONNECT_TIMEOUT_MS", "12000"))
 PEPPER_GESTURE_CHANCE = max(
     0.0,
     min(1.0, float(os.environ.get("PEPPER_GESTURE_CHANCE", "0.35"))),
 )
-PEPPER_GESTURES = {
-    "bow": ("animations/Stand/Gestures/BowShort_1", "a short polite bow"),
-    "calm": ("animations/Stand/Gestures/CalmDown_1", "a calming motion"),
-    "confused": ("animations/Stand/Emotions/Neutral/Confused_1", "a confused motion"),
-    "enthusiastic": ("animations/Stand/Gestures/Enthusiastic_4", "an enthusiastic emphasis"),
-    "explain": ("animations/Stand/Gestures/Explain_1", "a gentle explanatory gesture"),
-    "give": ("animations/Stand/Gestures/Give_3", "a presenting or offering motion"),
-    "hello": ("animations/Stand/Gestures/Hey_1", "a friendly greeting"),
-    "me": ("animations/Stand/Gestures/Me_1", "a self-reference gesture"),
-    "no": ("animations/Stand/Gestures/No_1", "a clear negative gesture"),
-    "roar": ("animations/Stand/Waiting/Monster_1", "a playful monster or dinosaur roar"),
-    "shrug": ("animations/Stand/Gestures/IDontKnow_1", "an uncertain shrug"),
-    "thinking": ("animations/Stand/Gestures/Thinking_1", "a thoughtful motion"),
-    "yes": ("animations/Stand/Gestures/Yes_1", "a clear affirmative gesture"),
-    "you": ("animations/Stand/Gestures/You_1", "a gentle listener-reference gesture"),
-}
 PEPPER_SYSTEM_PROMPT = os.environ.get(
     "PEPPER_SYSTEM_PROMPT",
     (
@@ -279,185 +189,6 @@ def conversational_gesture_from_reply(reply):
     return None
 
 
-def get_session(ip, port=9559):
-    if qi is None:
-        raise RuntimeError(
-            "NAOqi 'qi' module could not be imported. Ensure the SDK is installed, "
-            "PYTHONPATH is set, and the container is running as linux/amd64.\n%s"
-            % (_QI_IMPORT_ERROR or "")
-        )
-    key = "%s:%s" % (ip, port)
-    with _sessions_lock:
-        sess = _sessions.get(key)
-        if sess is not None:
-            try:
-                if not hasattr(sess, "isConnected") or sess.isConnected():
-                    return sess
-            except Exception:
-                pass
-            try:
-                sess.close()
-            except Exception:
-                pass
-            _sessions.pop(key, None)
-
-        # A disconnected qi.Session keeps stale service-directory state, so a
-        # reconnect always starts with a fresh object. The future also bounds a
-        # dead lab-network connection instead of holding a Flask worker forever.
-        sess = qi.Session()
-        try:
-            future = sess.connect("tcp://%s:%s" % (ip, port), _async=True)
-            future.value(PEPPER_CONNECT_TIMEOUT_MS)
-        except Exception as exc:
-            try:
-                future.cancel()
-            except Exception:
-                pass
-            try:
-                sess.close()
-            except Exception:
-                pass
-            raise RuntimeError("Could not connect to Pepper at %s: %s" % (key, exc))
-
-        _sessions[key] = sess
-        return sess
-
-
-def discard_session(ip, port=9559):
-    """Remove a failed qi session so the next attempt starts cleanly."""
-    key = "%s:%s" % (ip, port)
-    with _sessions_lock:
-        sess = _sessions.pop(key, None)
-    if sess is not None and hasattr(sess, "close"):
-        try:
-            sess.close()
-        except Exception:
-            pass
-
-
-def _safe_name(name):
-    name = (name or "").strip()
-    if not name or "/" in name or "\\" in name or name.startswith(".") or ".." in name:
-        return None
-    return name
-
-
-def _safe_join(base_dir, filename):
-    path = os.path.normpath(os.path.join(base_dir, filename))
-    base = os.path.normpath(base_dir)
-    if path != base and not path.startswith(base + os.sep):
-        raise ValueError("Unsafe path")
-    return path
-
-
-def _json_write_utf8(path, value):
-    text = json.dumps(value, ensure_ascii=False, indent=2)
-    if not isinstance(text, unicode):
-        text = text.decode("utf-8")
-    with io.open(path, "w", encoding="utf-8") as handle:
-        handle.write(text)
-
-
-def with_services(ip, port=9559):
-    """Helper to get ALAudioPlayer and ALAnimationPlayer services for an IP:port."""
-    sess = get_session(ip, port)
-    audio = sess.service("ALAudioPlayer")
-    anim = sess.service("ALAnimationPlayer")
-    return audio, anim
-
-
-def _png_chunk(chunk_type, payload):
-    checksum = zlib.crc32(chunk_type + payload) & 0xffffffff
-    return struct.pack(">I", len(payload)) + chunk_type + payload + struct.pack(">I", checksum)
-
-
-def rgb_to_png(width, height, rgb_bytes):
-    """Encode packed 8-bit RGB pixels as PNG using only Python's standard library."""
-    row_bytes = width * 3
-    expected = row_bytes * height
-    if len(rgb_bytes) < expected:
-        raise RuntimeError(
-            "Camera returned %s bytes; expected at least %s" % (len(rgb_bytes), expected)
-        )
-
-    scanlines = []
-    for row in range(height):
-        start = row * row_bytes
-        scanlines.append("\x00" + rgb_bytes[start:start + row_bytes])
-
-    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return (
-        "\x89PNG\r\n\x1a\n"
-        + _png_chunk("IHDR", header)
-        + _png_chunk("IDAT", zlib.compress("".join(scanlines), 3))
-        + _png_chunk("IEND", "")
-    )
-
-
-def capture_camera_png(ip, port, camera_name, resolution_name, fps):
-    camera_id = CAMERA_IDS[camera_name]
-    resolution_id = CAMERA_RESOLUTIONS[resolution_name]
-    session = get_session(ip, port)
-    video = session.service("ALVideoDevice")
-    subscriber = None
-
-    # Pepper exposes a limited number of camera subscriptions. Serialize these
-    # short-lived captures and always unsubscribe, including on timeouts.
-    with _camera_lock:
-        client_name = "pepper_portal_%s_%s" % (os.getpid(), next(_camera_counter))
-        try:
-            subscriber = video.subscribeCamera(
-                client_name, camera_id, resolution_id, RGB_COLOR_SPACE, fps
-            )
-            future = video.getImageRemote(subscriber, _async=True)
-            image = future.value(CAMERA_TIMEOUT_MS)
-            if not image or len(image) < 7:
-                raise RuntimeError("Pepper returned an empty camera frame")
-
-            width = int(image[0])
-            height = int(image[1])
-            pixels = image[6]
-            if isinstance(pixels, bytearray):
-                pixels = str(pixels)
-            elif not isinstance(pixels, str):
-                pixels = bytes(pixels)
-            return rgb_to_png(width, height, pixels)
-        finally:
-            if subscriber:
-                try:
-                    video.unsubscribe(subscriber)
-                except Exception:
-                    pass
-
-
-def set_vision_awareness_hold(ip, port, active):
-    """Suspend face-oriented awareness for Vision, restoring prior state later."""
-    session = get_session(ip, port)
-    life = session.service("ALAutonomousLife")
-    awareness = session.service("ALBasicAwareness")
-    session_key = "%s:%s" % (ip, port)
-
-    with _vision_awareness_lock:
-        if active:
-            if session_key not in _vision_awareness_states:
-                _vision_awareness_states[session_key] = {
-                    "life_enabled": bool(
-                        life.getAutonomousAbilityEnabled("BasicAwareness")
-                    ),
-                    "awareness_enabled": bool(awareness.isEnabled()),
-                }
-            life.setAutonomousAbilityEnabled("BasicAwareness", False)
-            awareness.setEnabled(False)
-            return _vision_awareness_states[session_key]
-
-        previous = _vision_awareness_states.pop(session_key, None)
-        if previous is not None:
-            awareness.setEnabled(previous["awareness_enabled"])
-            life.setAutonomousAbilityEnabled(
-                "BasicAwareness", previous["life_enabled"]
-            )
-        return previous
-
 def ollama_request(path, payload=None, timeout=10):
     """Call the Ollama HTTP API running on the Docker host."""
     url = OLLAMA_BASE_URL + path
@@ -471,55 +202,6 @@ def ollama_request(path, payload=None, timeout=10):
     response = urllib2.urlopen(req, timeout=timeout)
     raw = response.read()
     return json.loads(raw.decode("utf-8")) if raw else {}
-
-
-def wifi_helper_request(path, payload=None, timeout=None):
-    """Call the native host-side wifi helper (host_services/wifi_helper.py)."""
-    url = WIFI_HELPER_BASE_URL + path
-    body = None
-    headers = {"Accept": "application/json"}
-    if payload is not None:
-        body = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    if WIFI_HELPER_TOKEN:
-        headers["X-Wifi-Helper-Token"] = WIFI_HELPER_TOKEN
-    req = urllib2.Request(url, data=body, headers=headers)
-    response = urllib2.urlopen(req, timeout=timeout or WIFI_HELPER_TIMEOUT_SECONDS)
-    raw = response.read()
-    return json.loads(raw.decode("utf-8")) if raw else {}
-
-
-def local_ip_for(remote_ip, remote_port=9559):
-    """
-    The local IP of whichever NIC routes to remote_ip -- e.g. the Jetson's
-    internal wifi vs. its USB dongle vs. Ethernet, whichever one actually
-    reaches Pepper right now. No packets are sent; connect() on a UDP socket
-    only resolves a route.
-    """
-    sock = None
-    try:
-        import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.connect((remote_ip, remote_port))
-        return sock.getsockname()[0]
-    except Exception:
-        return None
-    finally:
-        if sock is not None:
-            sock.close()
-
-
-def portal_base_url(pepper_ip=None):
-    """Best-effort externally-reachable base URL for this portal, for Pepper's tablet."""
-    if PORTAL_PUBLIC_BASE_URL:
-        return PORTAL_PUBLIC_BASE_URL
-    host = local_ip_for(pepper_ip) if pepper_ip else None
-    if not host:
-        try:
-            host = request.host.split(":")[0]
-        except Exception:
-            host = "localhost"
-    return "http://%s:%s" % (host, PORTAL_HOST_PORT)
 
 
 def ollama_models():
@@ -621,174 +303,6 @@ def local_stt_request(path, payload=None, timeout=10):
     response = urllib2.urlopen(req, timeout=timeout)
     raw = response.read()
     return json.loads(raw.decode("utf-8")) if raw else {}
-
-
-def capture_pepper_microphone_wav(
-    ip,
-    port,
-    max_duration_seconds,
-    silence_seconds=PEPPER_MIC_SILENCE_SECONDS,
-    wait_for_speech=False,
-):
-    """Record until Pepper hears three seconds of continuous silence."""
-    session = get_session(ip, port)
-    recorder = session.service("ALAudioRecorder")
-    file_manager = session.service("ALFileManager")
-    audio_device = session.service("ALAudioDevice")
-    recording = False
-    wav_data = None
-    started_at = None
-    last_voice_at = None
-    speech_detected = False
-    max_energy = 0.0
-    canceled = False
-    session_key = "%s:%s" % (ip, port)
-    cancel_event = threading.Event()
-
-    with _microphone_state_lock:
-        previous_event = _microphone_cancel_events.get(session_key)
-        if previous_event is not None:
-            previous_event.set()
-        _microphone_cancel_events[session_key] = cancel_event
-
-    # ALAudioDevice callbacks require a robot-visible NAOqi module and do not
-    # work reliably through Docker NAT. Pepper's built-in recorder keeps the
-    # callback on the robot; ALFileManager then returns the completed WAV over
-    # the existing client connection without SSH credentials.
-    with _microphone_lock:
-        try:
-            recorder.startMicrophonesRecording(
-                PEPPER_MIC_ROBOT_PATH,
-                "wav",
-                PEPPER_MIC_SAMPLE_RATE,
-                [0, 0, 1, 0],  # left, right, front, rear
-            )
-            recording = True
-            audio_device.enableEnergyComputation()
-            started_at = time.time()
-            last_voice_at = started_at
-
-            while True:
-                if cancel_event.is_set():
-                    canceled = True
-                    break
-                now = time.time()
-                elapsed = now - started_at
-                energy = float(audio_device.getFrontMicEnergy())
-                max_energy = max(max_energy, energy)
-                if energy >= PEPPER_MIC_ENERGY_THRESHOLD:
-                    speech_detected = True
-                    last_voice_at = now
-
-                if (speech_detected or not wait_for_speech) and now - last_voice_at >= silence_seconds:
-                    break
-                if elapsed >= max_duration_seconds:
-                    break
-                time.sleep(PEPPER_MIC_ENERGY_POLL_SECONDS)
-
-            recorder.stopMicrophonesRecording()
-            recording = False
-            wav_data = file_manager.getFileContents(PEPPER_MIC_FILE_KEY)
-            if isinstance(wav_data, bytearray):
-                wav_data = str(wav_data)
-            elif not isinstance(wav_data, str):
-                wav_data = bytes(wav_data)
-        finally:
-            if recording:
-                try:
-                    recorder.stopMicrophonesRecording()
-                except Exception:
-                    pass
-            # Overwrite the captured speech immediately after transfer. NAOqi
-            # 2.5 ALFileManager can read files but provides no delete method.
-            try:
-                recorder.startMicrophonesRecording(
-                    PEPPER_MIC_ROBOT_PATH,
-                    "wav",
-                    PEPPER_MIC_SAMPLE_RATE,
-                    [0, 0, 1, 0],
-                )
-                time.sleep(0.05)
-                recorder.stopMicrophonesRecording()
-            except Exception:
-                try:
-                    recorder.stopMicrophonesRecording()
-                except Exception:
-                    pass
-            with _microphone_state_lock:
-                if _microphone_cancel_events.get(session_key) is cancel_event:
-                    _microphone_cancel_events.pop(session_key, None)
-
-    actual_seconds = round(time.time() - started_at, 2) if started_at else 0
-    capture_info = {
-        "actual_seconds": actual_seconds,
-        "speech_detected": speech_detected,
-        "max_energy": round(max_energy, 1),
-        "energy_threshold": PEPPER_MIC_ENERGY_THRESHOLD,
-        "silence_seconds": silence_seconds,
-        "canceled": canceled,
-    }
-    if not wav_data or len(wav_data) <= 44 or not wav_data.startswith("RIFF"):
-        if canceled:
-            return "", 0, capture_info
-        raise RuntimeError(
-            "Pepper microphone returned no WAV audio. Check ALAudioRecorder access."
-        )
-    return (
-        wav_data,
-        max(0, len(wav_data) - 44),
-        capture_info,
-    )
-
-
-def _run_script_job(job_id, script_path, ip, port, language="English", name_param=""):
-    env = os.environ.copy()
-    env["PEPPER_IP"] = ip
-    env["PEPPER_PORT"] = str(port)
-    env["SCRIPT_LANG"] = language
-    env["BIRTHDAY_NAME"] = name_param
-    cmd = [
-        sys.executable,
-        script_path,
-        "--ip",
-        ip,
-        "--port",
-        str(port),
-        "--lang",
-        language,
-    ]
-    try:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-        with _jobs_lock:
-            _jobs[job_id]["process"] = p
-        out, _ = p.communicate()
-        output = out.decode("utf-8", "ignore") if not isinstance(out, str) else out
-        rc = p.returncode
-    except Exception as e:
-        output = "Error: %s" % (str(e),)
-        rc = 1
-    finally:
-        with _jobs_lock:
-            _jobs[job_id]["done"] = True
-            _jobs[job_id]["rc"] = rc
-            _jobs[job_id]["output"] = output
-            _jobs[job_id]["process"] = None
-
-
-
-# --- Error handling decorator for JSON endpoints ---
-
-
-def json_endpoint(fn):
-    @wraps(fn)
-    def _wrap(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            traceback.print_exc()
-            return jsonify({"ok": False, "error": str(e)}), 400
-
-    return _wrap
 
 
 # A small curated list of animations from Aldebaran docs (NAOqi 2.5)
@@ -959,176 +473,6 @@ ANIMATIONS_GROUPED = {
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html", animations=ANIMATIONS)
-
-
-# --- Pepper's tablet (ALTabletService.showWebview points here) ---
-# A simple, deliberately static landing page: pick a wifi network for the
-# Jetson's internal NIC, or jump to the main portal. Served from this same
-# Flask app for simplicity -- no separate service.
-
-@app.route("/tablet", methods=["GET"])
-def tablet_landing():
-    return render_template("tablet.html")
-
-
-@app.route("/tablet/wifi", methods=["GET"])
-def tablet_wifi():
-    return render_template("tablet_wifi.html")
-
-
-@app.route("/api/tablet/show", methods=["POST"])
-@json_endpoint
-def api_tablet_show():
-    data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
-    path = (data.get("path") or "/tablet").strip()
-    url = (data.get("url") or "").strip()
-    if not ip:
-        return jsonify({"ok": False, "error": "'ip' is required"}), 400
-    if PepperController is None:
-        return jsonify({"ok": False, "error": "Pepper controller is unavailable"}), 500
-    if not url:
-        if not path.startswith("/"):
-            path = "/" + path
-        url = portal_base_url(ip) + path
-    controller = PepperController(ip=ip, port=port, verbose=True)
-    controller.show_tablet(url)
-    return jsonify({"ok": True, "url": url})
-
-
-@app.route("/api/tablet/hide", methods=["POST"])
-@json_endpoint
-def api_tablet_hide():
-    data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
-    if not ip:
-        return jsonify({"ok": False, "error": "'ip' is required"}), 400
-    if PepperController is None:
-        return jsonify({"ok": False, "error": "Pepper controller is unavailable"}), 500
-    controller = PepperController(ip=ip, port=port, verbose=True)
-    controller.hide_tablet()
-    return jsonify({"ok": True})
-
-
-# --- Wifi (Jetson's internal NIC), proxied to the native host_services/wifi_helper.py ---
-# Runs outside Docker (systemd, see README) because controlling the host's
-# own wifi radio needs host network namespace access that a container
-# shouldn't be given (see docker-compose.yaml notes on why the portal isn't
-# network_mode: host).
-
-@app.route("/api/wifi/status", methods=["GET"])
-@json_endpoint
-def api_wifi_status():
-    try:
-        return jsonify(wifi_helper_request("/status", timeout=8))
-    except Exception as exc:
-        return jsonify({"ok": False, "error": "Wifi helper unreachable: %s" % exc}), 502
-
-
-@app.route("/api/wifi/networks", methods=["GET"])
-@json_endpoint
-def api_wifi_networks():
-    try:
-        return jsonify(wifi_helper_request("/networks", timeout=WIFI_HELPER_TIMEOUT_SECONDS))
-    except Exception as exc:
-        return jsonify({"ok": False, "error": "Wifi helper unreachable: %s" % exc}), 502
-
-
-@app.route("/api/wifi/connect", methods=["POST"])
-@json_endpoint
-def api_wifi_connect():
-    data = request.get_json(force=True)
-    ssid = (data.get("ssid") or "").strip()
-    password = data.get("password") or ""
-    if not ssid:
-        return jsonify({"ok": False, "error": "'ssid' is required"}), 400
-    try:
-        return jsonify(wifi_helper_request(
-            "/connect", payload={"ssid": ssid, "password": password}, timeout=WIFI_HELPER_TIMEOUT_SECONDS
-        ))
-    except Exception as exc:
-        return jsonify({"ok": False, "error": "Wifi helper unreachable: %s" % exc}), 502
-
-
-@app.route("/api/connect-test", methods=["POST"])
-@json_endpoint
-def api_connect():
-    data = request.get_json(force=True)
-    ip = data.get("ip", "").strip()
-    port = int(data.get("port", 9559))
-    if not ip:
-        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-    # Only one service-discovery handshake may run at a time, even if several
-    # browser tabs click Connect together. A failed qi session is discarded so
-    # later requests cannot reuse its canceled futures.
-    with _connect_test_lock:
-        try:
-            session = get_session(ip, port)
-            system = session.service("ALSystem")
-            if not system.ping():
-                raise RuntimeError("Pepper's ALSystem service did not respond")
-        except Exception:
-            discard_session(ip, port)
-            raise
-    return jsonify({"ok": True})
-
-
-@app.route("/api/camera-frame", methods=["GET"])
-@json_endpoint
-def api_camera_frame():
-    ip = (request.args.get("ip") or "").strip()
-    port = int(request.args.get("port", 9559))
-    camera_name = (request.args.get("camera") or "top").strip().lower()
-    resolution_name = (request.args.get("resolution") or "320x240").strip().lower()
-    fps = max(1, min(5, int(request.args.get("fps", 2))))
-
-    if not ip:
-        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-    if camera_name not in CAMERA_IDS:
-        return jsonify({"ok": False, "error": "Camera must be 'top' or 'bottom'"}), 400
-    if resolution_name not in CAMERA_RESOLUTIONS:
-        return jsonify({
-            "ok": False,
-            "error": "Resolution must be one of: %s" % ", ".join(sorted(CAMERA_RESOLUTIONS)),
-        }), 400
-
-    png = capture_camera_png(ip, port, camera_name, resolution_name, fps)
-    return Response(
-        png,
-        mimetype="image/png",
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
-        },
-    )
-
-
-@app.route("/api/vision-attention", methods=["POST"])
-@json_endpoint
-def api_vision_attention():
-    """Keep Pepper's head steady while the portal Vision workspace is active."""
-    data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
-    active = bool(data.get("active", False))
-    if not ip:
-        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-
-    previous = set_vision_awareness_hold(ip, port, active)
-    session = get_session(ip, port)
-    life = session.service("ALAutonomousLife")
-    awareness = session.service("ALBasicAwareness")
-    return jsonify({
-        "ok": True,
-        "active": active,
-        "basic_awareness_enabled": bool(awareness.isEnabled()),
-        "autonomous_ability_enabled": bool(
-            life.getAutonomousAbilityEnabled("BasicAwareness")
-        ),
-        "previous": previous,
-    })
 
 
 @app.route("/api/local-ai/status", methods=["GET"])
@@ -1357,7 +701,7 @@ def api_local_vision_ask():
 
     # One deliberate high-resolution snapshot is considerably lighter than
     # continuously sending the live camera stream to the VLM.
-    png = capture_camera_png(ip, port, camera_name, resolution_name, 1)
+    png = robot.connect(ip, port).camera.capture_png(camera_name, resolution_name, 1)
     encoded_image = base64.b64encode(png)
     with _ollama_generation_lock:
         try:
@@ -1566,9 +910,7 @@ def api_pepper_listen():
     if not stt_status.get("ok") or not stt_status.get("available"):
         return jsonify({"ok": False, "error": "Local speech recognition is not ready"}), 400
 
-    wav_data, pcm_bytes, capture_info = capture_pepper_microphone_wav(
-        ip,
-        port,
+    wav_data, pcm_bytes, capture_info = robot.connect(ip, port).microphone.record_utterance(
         duration_seconds,
         wait_for_speech=continuous,
     )
@@ -1613,19 +955,14 @@ def api_conversation_stop():
     if not ip:
         return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
 
-    session_key = "%s:%s" % (ip, port)
-    with _microphone_state_lock:
-        cancel_event = _microphone_cancel_events.get(session_key)
-        if cancel_event is not None:
-            cancel_event.set()
-
-    try:
-        session = get_session(ip, port)
-        session.service("ALTextToSpeech").stopAll()
-        session.service("ALAnimationPlayer").stopAll()
-    except Exception:
-        pass
-    return jsonify({"ok": True, "listening_stopped": cancel_event is not None})
+    pepper = robot.connect(ip, port)
+    listening_stopped = pepper.microphone.cancel()
+    for stop in (pepper.speech.stop_all, pepper.motion.stop_animations):
+        try:
+            stop()
+        except Exception:
+            pass
+    return jsonify({"ok": True, "listening_stopped": listening_stopped})
 
 
 @app.route("/api/pepper-speak", methods=["POST"])
@@ -1644,504 +981,23 @@ def api_pepper_speak():
     if gesture != "none" and gesture not in PEPPER_GESTURES:
         return jsonify({"ok": False, "error": "Unknown or unsafe gesture"}), 400
 
-    session = get_session(ip, port)
+    pepper = robot.connect(ip, port)
     gesture_performed = False
     gesture_error = None
     if gesture != "none":
         try:
-            animation_path = PEPPER_GESTURES[gesture][0]
-            session.service("ALAnimationPlayer").run(animation_path, _async=True)
+            pepper.motion.run_animation(animation_for(gesture), wait=False)
             gesture_performed = True
         except Exception as exc:
             # Speech remains useful if a Pepper image lacks one animation.
             gesture_error = str(exc)
-    speech = session.service("ALTextToSpeech")
-    speech.say(text.encode("utf-8") if isinstance(text, unicode) else text)
+    pepper.speech.say(text, wait=True)
     return jsonify({
         "ok": True,
         "gesture": gesture,
         "gesture_performed": gesture_performed,
         "gesture_error": gesture_error,
     })
-
-
-@app.route("/api/play-audio", methods=["POST"])
-@json_endpoint
-def api_play_audio():
-    data = request.get_json(force=True)
-    ip = data.get("ip", "").strip()
-    port = int(data.get("port", 9559))
-    path = data.get("path", "").strip()
-    if not ip or not path:
-        return jsonify({"ok": False, "error": "'ip' and 'path' are required"}), 400
-
-    audio, _ = with_services(ip, port)
-    file_id = audio.loadFile(path)
-    audio.play(file_id)
-    return jsonify({"ok": True, "fileId": int(file_id)})
-
-
-@app.route("/api/stop-audio", methods=["POST"])
-@json_endpoint
-def api_stop_audio():
-    data = request.get_json(force=True)
-    ip = data.get("ip", "").strip()
-    port = int(data.get("port", 9559))
-    if not ip:
-        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-
-    audio, _ = with_services(ip, port)
-    try:
-        audio.stopAll()
-    except Exception:
-        pass
-    return jsonify({"ok": True})
-
-
-# --- Media (drag-and-drop onto the portal) ---
-# Everything lands in media/ (a mirror of Pepper's wav folder) and a
-# background worker pushes it onto the robot -- see pepper_core/media_store.py.
-
-if media_store is not None:
-    # Start the sync worker now rather than on the first page load, so files
-    # copied into media/ by hand reach PEPPER_IP with no browser open.
-    media_store.request_sync()
-
-
-def _media_unavailable():
-    if media_store is None:
-        return jsonify({"ok": False, "error": "Media store unavailable"}), 500
-    return None
-
-
-@app.route("/api/media", methods=["GET"])
-@json_endpoint
-def api_media():
-    unavailable = _media_unavailable()
-    if unavailable:
-        return unavailable
-    media_store.set_robot(request.args.get("ip"))
-    return jsonify(dict(media_store.status(), ok=True))
-
-
-@app.route("/api/media/upload", methods=["POST"])
-@json_endpoint
-def api_upload_media():
-    unavailable = _media_unavailable()
-    if unavailable:
-        return unavailable
-    uploaded = request.files.get("file")
-    if uploaded is None or not uploaded.filename:
-        return jsonify({"ok": False, "error": "No file provided"}), 400
-    media_store.set_robot(request.form.get("ip"))
-    rel = media_store.save_upload(uploaded, uploaded.filename, request.form.get("folder"))
-    # remote_path is what the scripter needs: the file's absolute location on
-    # Pepper after the sync worker copies it over.
-    return jsonify({"ok": True, "path": rel, "remote_path": media_store.robot_path(rel)})
-
-
-@app.route("/api/media/sync", methods=["POST"])
-@json_endpoint
-def api_media_sync():
-    unavailable = _media_unavailable()
-    if unavailable:
-        return unavailable
-    data = request.get_json(force=True, silent=True) or {}
-    media_store.set_robot(data.get("ip"))
-    media_store.request_sync()
-    return jsonify({"ok": True})
-
-
-@app.route("/api/media/delete", methods=["POST"])
-@json_endpoint
-def api_media_delete():
-    unavailable = _media_unavailable()
-    if unavailable:
-        return unavailable
-    data = request.get_json(force=True, silent=True) or {}
-    media_store.set_robot(data.get("ip"))
-    remote_error = media_store.delete_file(data.get("path") or "")
-    return jsonify({"ok": True, "remote_error": remote_error})
-
-
-# Serves media/ over HTTP -- how Pepper's tablet (showWebview) plays video.
-@app.route("/media/<path:rel>", methods=["GET"])
-def media_file(rel):
-    path = media_store.local_file(rel) if media_store is not None else None
-    if path is None:
-        return jsonify({"ok": False, "error": "Not found"}), 404
-    return send_from_directory(os.path.dirname(path), os.path.basename(path))
-
-
-@app.route("/api/run-animation", methods=["POST"])
-@json_endpoint
-def api_run_animation():
-    data = request.get_json(force=True)
-    ip = data.get("ip", "").strip()
-    port = int(data.get("port", 9559))
-    animation = data.get("animation", "").strip()
-    mode = (data.get("mode", "sync") or "sync").lower()
-    if not ip or not animation:
-        return jsonify({"ok": False, "error": "'ip' and 'animation' are required"}), 400
-
-    _, anim = with_services(ip, port)
-    if mode == "async":
-        _future = anim.run(animation, _async=True)
-        return jsonify({"ok": True, "async": True})
-    else:
-        anim.run(animation)
-        return jsonify({"ok": True, "async": False})
-
-
-@app.route("/api/stop-animation", methods=["POST"])
-@json_endpoint
-def api_stop_animations():
-    data = request.get_json(force=True)
-    ip = data.get("ip", "").strip()
-    port = int(data.get("port", 9559))
-    if not ip:
-        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-
-    _, anim = with_services(ip, port)
-    try:
-        anim.stopAll()
-    except Exception:
-        pass
-    return jsonify({"ok": True})
-
-
-@app.route("/api/list-behaviors", methods=["POST"])
-@json_endpoint
-def api_list_behaviors():
-    data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
-    if not ip:
-        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-    manager = get_session(ip, port).service("ALBehaviorManager")
-    return jsonify({
-        "ok": True,
-        "behaviors": manager.getInstalledBehaviors(),
-        "running": manager.getRunningBehaviors(),
-    })
-
-
-@app.route("/api/run-behavior", methods=["POST"])
-@json_endpoint
-def api_run_behavior():
-    data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
-    behavior = (data.get("behavior") or "").strip()
-    if not ip or not behavior:
-        return jsonify({"ok": False, "error": "'ip' and 'behavior' are required"}), 400
-    manager = get_session(ip, port).service("ALBehaviorManager")
-    manager.startBehavior(behavior)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/stop-behavior", methods=["POST"])
-@json_endpoint
-def api_stop_behavior():
-    data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
-    if not ip:
-        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-    manager = get_session(ip, port).service("ALBehaviorManager")
-    try:
-        manager.stopAllBehaviors()
-    except Exception:
-        pass
-    return jsonify({"ok": True})
-
-@app.route("/api/scripts", methods=["GET"])
-def api_scripts():
-    if not os.path.isdir(SCRIPTS_DIR):
-        return jsonify({"ok": True, "scripts": []})
-    names = []
-    for name in os.listdir(SCRIPTS_DIR):
-        if name.endswith(".py") and not name.startswith("_"):
-            names.append(name)
-    names.sort()
-    return jsonify({"ok": True, "scripts": names})
-
-@app.route("/api/run-script", methods=["POST"])
-@json_endpoint
-def api_run_script():
-    data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
-    script = (data.get("script") or "").strip()
-    language = (data.get("language") or "English").strip()
-    name_param = (data.get("name_param") or "").strip()
-    if not ip or not script:
-        return jsonify({"ok": False, "error": "Provide 'ip' and 'script'"}), 400
-
-    if not _safe_name(script):
-        return jsonify({"ok": False, "error": "Unsafe script name"}), 400
-    spath = _safe_join(SCRIPTS_DIR, script)
-    if not os.path.isfile(spath):
-        return jsonify({"ok": False, "error": "Invalid script"}), 400
-
-    job_id = str(next(_job_counter))
-    with _jobs_lock:
-        _jobs[job_id] = {
-            "script": script,
-            "done": False,
-            "rc": None,
-            "output": "",
-            "process": None,
-        }
-
-    t = threading.Thread(
-        target=_run_script_job,
-        args=(job_id, spath, ip, port, language, name_param),
-    )
-    t.daemon = True
-    t.start()
-
-    return jsonify({"ok": True, "job_id": job_id})
-
-
-@app.route("/api/stop-script", methods=["POST"])
-@json_endpoint
-def api_stop_script():
-    data = request.get_json(force=True)
-    job_id = (data.get("job_id") or "").strip()
-    with _jobs_lock:
-        job = _jobs.get(job_id)
-        if not job:
-            return jsonify({"ok": False, "error": "Unknown job_id"}), 404
-        process = job.get("process")
-    if process and process.poll() is None:
-        try:
-            process.terminate()
-            process.wait()
-        except Exception:
-            try:
-                process.kill()
-            except Exception:
-                pass
-        with _jobs_lock:
-            job["done"] = True
-            job["rc"] = -9
-            job["output"] = (job.get("output") or "") + "\n[stopped by user]"
-            job["process"] = None
-        return jsonify({"ok": True, "stopped": True})
-    return jsonify({"ok": True, "stopped": False})
-
-@app.route("/api/script-status", methods=["GET"])
-def api_script_status():
-    job_id = request.args.get("job_id", "").strip()
-    with _jobs_lock:
-        state = _jobs.get(job_id)
-        if not state:
-            return jsonify({"ok": False, "error": "Unknown job_id"}), 404
-        # Return a copy
-        return jsonify({"ok": True, "done": state["done"], "rc": state["rc"], "output": state["output"]})
-
-@app.route("/api/mode-status", methods=["POST"])
-@json_endpoint
-def api_mode_status():
-    data = request.get_json(force=True)
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
-    if not ip:
-        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-
-    sess = get_session(ip, port)
-    # Awake / sleep (motors)
-    motion = sess.service("ALMotion")
-    try:
-        is_awake = bool(motion.robotIsWakeUp())  # True if motors on (wakeUp), False if rest
-    except Exception:
-        # Fallback: if robotIsWakeUp missing, infer from stiffness
-        try:
-            is_awake = any(motion.getStiffnesses("Body"))
-        except Exception:
-            is_awake = False
-
-    # Autonomous Life state -> use as our "animation mode"
-    animation_enabled = False
-    life_state = "unknown"
-    try:
-        life = sess.service("ALAutonomousLife")
-        life_state = life.getState()  # "disabled","solitary","interactive","safeguard"
-        animation_enabled = life_state != "disabled"
-    except Exception:
-        # Fallback: BasicAwareness
-        try:
-            awareness = sess.service("ALBasicAwareness")
-            animation_enabled = bool(awareness.isEnabled())
-            life_state = "basic_awareness_%s" % ("on" if animation_enabled else "off")
-        except Exception:
-            pass
-
-    return jsonify({
-        "ok": True,
-        "is_awake": is_awake,
-        "animation_enabled": animation_enabled,
-        "life_state": life_state,
-    })
-
-@app.route("/api/sleep", methods=["POST"])
-@json_endpoint
-def api_sleep():
-    data = request.get_json(force=True)
-    ip = data.get("ip", "").strip()
-    port = int(data.get("port", 9559))
-    action = (data.get("action") or "").strip().lower()
-    if not ip or action not in ("rest", "wake"):
-        return jsonify({"ok": False, "error": "Provide 'ip' and action in {'rest','wake'}"}), 400
-
-    sess = get_session(ip, port)
-    motion = sess.service("ALMotion")
-    if action == "rest":
-        motion.rest()     # motors off / relaxed
-    else:
-        motion.wakeUp()   # motors on / ready
-    return jsonify({"ok": True, "action": action})
-
-
-@app.route("/api/animation-mode", methods=["POST"])
-@json_endpoint
-def api_animation_mode():
-    data = request.get_json(force=True)
-    ip = data.get("ip", "").strip()
-    port = int(data.get("port", 9559))
-    enabled = bool(data.get("enabled", True))
-    if not ip:
-        return jsonify({"ok": False, "error": "Missing 'ip'"}), 400
-
-    sess = get_session(ip, port)
-    # Use Autonomous Life to toggle idle/animation-like behaviors.
-    life = sess.service("ALAutonomousLife")
-    try:
-        if enabled:
-            # 'solitary' is a safe default that enables idle animations/awareness
-            life.setState("solitary")
-        else:
-            life.setState("disabled")
-    except Exception:
-        # Some images prefer BasicAwareness toggle as fallback
-        try:
-            awareness = sess.service("ALBasicAwareness")
-            awareness.setEnabled(enabled)
-        except Exception:
-            pass
-    return jsonify({"ok": True, "enabled": enabled})
-
-
-@app.route("/api/list-scenes", methods=["GET"])
-def api_list_scenes():
-    items = []
-    try:
-        for filename in os.listdir(SCENES_DIR):
-            if not filename.startswith(".") and filename.lower().endswith(".json"):
-                items.append(filename[:-5])
-        items.sort(key=lambda value: value.lower())
-        return jsonify(items)
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
-
-
-@app.route("/api/get-scene/<name>", methods=["GET"])
-def api_get_scene(name):
-    safe_name = _safe_name(name)
-    if not safe_name:
-        return jsonify({"ok": False, "error": "Invalid scene name"}), 400
-    path = _safe_join(SCENES_DIR, safe_name + ".json")
-    if not os.path.exists(path):
-        return jsonify({"ok": False, "error": "Scene not found"}), 404
-    try:
-        with io.open(path, "r", encoding="utf-8") as handle:
-            return jsonify(json.load(handle))
-    except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
-
-
-SCENE_ACTION_VERBS = frozenset([
-    "audiofile", "audiofiles", "audio", "audios",
-    "say", "text", "texts",
-    "animation", "animations", "run", "runs",
-    "behavior", "behaviors", "behaviour", "behaviours",
-])
-SCENE_ACTION_MODIFIERS = frozenset([
-    "await", "await_audio", "await_tts", "await_anim", "await_behavior",
-    "hold_for",
-])
-SCENE_BLOCK_KEYS = frozenset(["actions", "wait", "time"])
-
-
-def _validate_scene_steps(steps):
-    """Return None if steps is a well-formed scene body, else an error string.
-
-    Mirrors validateSceneSteps() in the UI so a hand-crafted POST or a saved
-    file can't smuggle in blocks the scripter doesn't understand.
-    """
-    if not isinstance(steps, list):
-        return "Top-level scene must be a list of blocks."
-    for bi, block in enumerate(steps):
-        if not isinstance(block, dict):
-            return "Block %d must be an object." % bi
-        stray = set(block.keys()) - SCENE_BLOCK_KEYS
-        if stray:
-            return "Block %d: unknown key(s) %s" % (bi, ", ".join(sorted(stray)))
-        actions = block.get("actions")
-        if not isinstance(actions, list) or not actions:
-            return "Block %d needs a non-empty 'actions' array." % bi
-        for ai, action in enumerate(actions):
-            if not isinstance(action, dict) or not action:
-                return "Block %d action %d must be a non-empty object." % (bi, ai)
-            keys = set(action.keys())
-            unknown = keys - SCENE_ACTION_VERBS - SCENE_ACTION_MODIFIERS
-            if unknown:
-                return "Block %d action %d: unknown key(s) %s" % (
-                    bi, ai, ", ".join(sorted(unknown)))
-            if not (keys & SCENE_ACTION_VERBS):
-                return "Block %d action %d has no verb (say/audiofile/animation/behavior)." % (bi, ai)
-    return None
-
-
-@app.route("/api/save-scene", methods=["POST"])
-@json_endpoint
-def api_save_scene():
-    data = request.get_json(force=True)
-    name = _safe_name(data.get("name"))
-    steps = data.get("steps")
-    if not name:
-        return jsonify({"ok": False, "error": "Scene name is required"}), 400
-    problem = _validate_scene_steps(steps)
-    if problem:
-        return jsonify({"ok": False, "error": problem}), 400
-    path = _safe_join(SCENES_DIR, name + ".json")
-    _json_write_utf8(path, {"script_name": name, "scene": steps})
-    return jsonify({"ok": True, "filename": os.path.basename(path), "script_name": name})
-
-
-@app.route("/api/run-scene", methods=["POST"])
-@json_endpoint
-def api_run_scene():
-    data = request.get_json(force=True)
-    name = _safe_name(data.get("name"))
-    ip = (data.get("ip") or "").strip()
-    port = int(data.get("port", 9559))
-    if not name or not ip:
-        return jsonify({"ok": False, "error": "Missing scene name or IP"}), 400
-    if PepperController is None or PepperScripter is None:
-        return jsonify({"ok": False, "error": "Pepper scene controller is unavailable"}), 500
-    scene_path = _safe_join(SCENES_DIR, name + ".json")
-    if not os.path.exists(scene_path):
-        return jsonify({"ok": False, "error": "Scene not found"}), 404
-    controller = PepperController(ip=ip, port=port, verbose=True)
-    scripter = PepperScripter(controller=controller, blocking=True, verbose=True)
-    completed = scripter.run_scene(scene_path, base=os.path.dirname(scene_path))
-    return jsonify({
-        "ok": bool(completed),
-        "status": "completed" if completed else "no_actions",
-    })
-
 
 
 @app.route("/health", methods=["GET"])

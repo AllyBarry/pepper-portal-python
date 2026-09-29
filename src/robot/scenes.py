@@ -1,8 +1,19 @@
+# -*- coding: utf-8 -*-
+"""
+Runs JSON scenes (src/scenes/*.json) on Pepper.
+
+A scene is a list of blocks; each block is a list of action rows run top to
+bottom. See the portal's Scenes workspace for the format. The runner drives a
+*performer* -- anything with play_audio / say / play_animation / play_behavior
+(async_play=...) returning qi futures -- normally robot.compat.PepperController.
+"""
 import os
 import io
 import json
 import time
 import traceback
+
+from .files import WAV_ROOT, DEFAULT_FOLDER
 
 # ---------------- logging ----------------
 def _log(level, msg, verbose=True):
@@ -62,11 +73,7 @@ def _resolve_audio_path(audiofile, audio_source):
     # No audio_source on the scene: treat it as a bare filename dropped on the
     # Media page with the default folder, i.e. media/uploads/ on the
     # Jetson -> .../wav/uploads/ on Pepper.
-    try:
-        from .media_store import PEPPER_WAV_ROOT, DEFAULT_FOLDER
-    except Exception:
-        PEPPER_WAV_ROOT, DEFAULT_FOLDER = "/data/home/nao/.local/share/wav/", "uploads"
-    return os.path.normpath(os.path.join(PEPPER_WAV_ROOT, DEFAULT_FOLDER, rel))
+    return os.path.normpath(os.path.join(WAV_ROOT, DEFAULT_FOLDER, rel))
 
 def _parse_await_policy(row):
     """
@@ -125,10 +132,10 @@ def _should_wait(group_name, is_array_burst, row_flags):
 
 
 # ---------------- core ----------------
-class PepperScripter(object):
-    def __init__(self, controller, verbose=True,**kwargs):
+class SceneRunner(object):
+    def __init__(self, controller, verbose=True, **kwargs):
         """
-        controller must expose:
+        controller (the performer) must expose:
           - play_audio(path, async_play=True/False)
           - say(text,   async_play=True/False)
           - play_animation(name, async_play=True/False)
@@ -408,51 +415,11 @@ class PepperScripter(object):
         return executed_any
 
 
-# ------------- optional demo -------------
-if __name__ == "__main__":
-    # Uses your real controller; edit IP/port if needed
-    try:
-        from controller import PepperController
-    except Exception as e:
-        print("[ERROR] Could not import PepperController from pepper_core: %s" % str(e))
-        raise SystemExit(1)
+# Old name, kept for existing callers.
+PepperScripter = SceneRunner
 
-    try:
-        ctrl = PepperController(ip="192.168.1.8", port=9559, verbose=True)
-    except Exception as e:
-        print("[ERROR] Failed to initialize PepperController: %s" % str(e))
-        raise SystemExit(1)
 
-    demo = {
-  "script_name": "DemoScript",
-  "audio_source": "/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Informal Conditions/English/Informal English_Formatted/",
-  "scene": [
-    {
-      "actions": [
-        { "audiofile": "1_Informal English.wav" },
-        { "animation": "animations/Stand/Gestures/Hey_4" }
-      ]
-    },
-    {
-      "actions": [
-        { "audiofile": "2_Informal English.wav" },
-        { "animation": "animations/Stand/Gestures/ShowSky_5", "await": "anim" },
-        { "animation": "animations/Stand/Gestures/Explain_4", "await": "anim" },
-        { "animation": "animations/Stand/Gestures/Explain_5", "await": "anim" }
-      ]
-    },
-    {
-      "wait": 2.3,
-      "actions": [
-        { "audiofile": "greeting.wav" },
-        { "say": "This was a simple test.", "await": "tts" }
-      ]
-    }
-  ]
-}
-    try:
-        PepperScripter(ctrl, verbose=True)._run_data(demo, base=os.getcwd())
-    except Exception as e:
-        print("[ERROR] Demo run failed: %s" % str(e))
-        print(traceback.format_exc())
-        raise SystemExit(1)
+def run_scene_file(robot, json_path, verbose=True):
+    """Run a scene file on a robot.Robot. True if any action ran."""
+    from .compat import PepperController
+    return SceneRunner(PepperController(robot=robot, verbose=verbose), verbose=verbose).run_scene(json_path)
