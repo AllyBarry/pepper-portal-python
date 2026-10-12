@@ -184,6 +184,20 @@ class HealthTest(unittest.TestCase):
         self.assertEqual(pepper.system.battery(), {"charge": 87, "charging": True})
 
 
+class WifiSignalTest(unittest.TestCase):
+    def test_parses_proc_net_wireless(self):
+        out = ("Inter-| sta-|   Quality        |   Discarded packets               | Missed | WE\n"
+               " face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\n"
+               " wlan0: 0000   62.  -48.  -256        0      0      0      0      0        0\n")
+        pepper = Robot("10.0.0.2", services=FakeServices(), shell=FakeShell({"cat /proc/net/wireless": out}))
+        self.assertEqual(pepper.network.wifi_signal(), {"interface": "wlan0", "quality": 62, "signal_dbm": -48})
+
+    def test_wired_only_is_none(self):
+        out = "Inter-| sta-|   Quality\n face | tus | link level noise\n"
+        pepper = Robot("10.0.0.2", services=FakeServices(), shell=FakeShell({"cat": out}))
+        self.assertIsNone(pepper.network.wifi_signal())
+
+
 class SessionPoolTest(unittest.TestCase):
     def test_reuses_live_session_and_replaces_dead_one(self):
         made = []

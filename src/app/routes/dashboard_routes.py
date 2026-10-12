@@ -88,6 +88,32 @@ def api_pepper_discover():
     return helper("/pepper", timeout=10)
 
 
+@bp.route("/api/pepper/link", methods=["GET"])
+@json_endpoint
+def api_pepper_link():
+    """
+    Pepper <-> Jetson Wi-Fi link for the top-bar signal meter. Signal comes from
+    Pepper itself (SSH): the AP dongle's driver reports a dummy 0 dBm. Link
+    speeds come from the AP (`iw station get`, via the host helper).
+    """
+    out = {"ok": True, "signal_dbm": None, "quality": None, "ap": None}
+    try:
+        signal = robot_from(request.args).network.wifi_signal()
+        if signal:
+            out.update(signal_dbm=signal["signal_dbm"], quality=signal["quality"], interface=signal["interface"])
+        else:
+            out["wired"] = True
+    except Exception as exc:
+        out["signal_error"] = str(exc)[-200:]
+    try:
+        status, raw = _call("/pepper/link", args={"ip": request.args.get("ip", "")}, timeout=5)
+        if status == 200:
+            out["ap"] = json.loads(raw.decode("utf-8"))
+    except Exception:
+        pass
+    return jsonify(out)
+
+
 @bp.route("/api/pepper/remember", methods=["POST"])
 def api_pepper_remember():
     return helper("/pepper/remember", payload={"mac": json_body().get("mac")})

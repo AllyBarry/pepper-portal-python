@@ -23,3 +23,18 @@ class RobotNetwork(object):
             return {"online": online, "error": None if online else out.strip()[-200:]}
         except Exception as exc:
             return {"online": False, "error": error_text(exc)}
+
+    def wifi_signal(self):
+        """
+        Pepper's own view of its Wi-Fi link, from /proc/net/wireless:
+        {"interface", "signal_dbm", "quality"} (quality 0..70), or None if not on Wi-Fi.
+        """
+        for line in self._shell.run("cat /proc/net/wireless").splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[0].endswith(":") and parts[0] != "face":
+                return {
+                    "interface": parts[0].rstrip(":"),
+                    "quality": int(float(parts[2])),
+                    "signal_dbm": int(float(parts[3])),
+                }
+        return None

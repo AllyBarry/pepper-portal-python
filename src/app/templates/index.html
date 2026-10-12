@@ -226,6 +226,15 @@
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 14px var(--green); }
     .connection-pill.offline { color: #a5b0c4; border-color: var(--line); background: rgba(255,255,255,.03); }
     .connection-pill.offline .status-dot { background: #64738e; box-shadow: none; }
+    .signal-pill { display: flex; align-items: center; gap: .5rem; padding: .5rem .75rem; border: 1px solid var(--line); border-radius: 999px; color: #c8d4ee; background: rgba(255,255,255,.03); font-size: .76rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .signal-bars { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+    .signal-bars i { display: block; width: 4px; border-radius: 1px; background: rgba(255,255,255,.14); }
+    .signal-bars i:nth-child(1) { height: 25%; } .signal-bars i:nth-child(2) { height: 50%; }
+    .signal-bars i:nth-child(3) { height: 75%; } .signal-bars i:nth-child(4) { height: 100%; }
+    .signal-pill.good i.on { background: var(--green); }
+    .signal-pill.fair i.on { background: var(--amber); }
+    .signal-pill.poor i.on { background: var(--red); }
+    .signal-pill.poor { border-color: rgba(255,107,131,.4); }
     .ghost-button { padding: .55rem .75rem; color: #7f8ca4; background: transparent; font-size: .76rem; }
 
     .workspace { min-height: 100vh; margin-left: 216px; padding: calc(64px + clamp(1.5rem, 3vw, 2.5rem)) clamp(1.2rem, 3vw, 3rem) 3rem; overflow-x: hidden; }
@@ -348,6 +357,7 @@
       .topbar { justify-content: flex-end; }
       .view-header { display: block; }
       .connection-pill { font-size: .7rem; }
+      .signal-pill { padding: .45rem .55rem; font-size: .7rem; }
       .session-hero { grid-template-columns: 1fr; }
       .session-actions { justify-content: flex-start; }
       .conversation-sidebar { grid-template-columns: 1fr; }
@@ -425,6 +435,10 @@
     <header class="topbar">
       <div id="topbarContext" class="topbar-context">Conversation workspace</div>
       <div class="connection-cluster">
+        <div id="signalPill" class="signal-pill" title="Pepper's Wi-Fi signal to the Jetson" hidden>
+          <span class="signal-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span id="signalText">—</span>
+        </div>
         <div id="globalConnectionStatus" class="connection-pill offline"><span class="status-dot"></span><span id="globalConnectionText">Pepper offline</span></div>
         <button class="ghost-button" onclick="disconnectUi()">Disconnect</button>
       </div>
@@ -1103,6 +1117,7 @@
 
     function setConnectionUi(connected, enterWorkspace) {
       pepperConnected = connected;
+      refreshSignal();
       const pill = document.getElementById('globalConnectionStatus');
       const text = document.getElementById('globalConnectionText');
       pill.classList.toggle('offline', !connected);
@@ -3900,6 +3915,52 @@
         document.getElementById('teleopCamStatus').textContent = e.message;
         teleopCamTimer = setTimeout(teleopCamFrame, 1500);
       }
+    }
+
+    // ================= Wi-Fi signal (top bar) =================
+    let signalTimer = null;
+    const SIGNAL_POLL_MS = 5000;
+
+    function signalBars(dbm) {
+      if (dbm >= -55) return 4;
+      if (dbm >= -65) return 3;
+      if (dbm >= -75) return 2;
+      if (dbm >= -85) return 1;
+      return 0;
+    }
+
+    async function refreshSignal() {
+      clearTimeout(signalTimer);
+      const pill = document.getElementById('signalPill');
+      if (!pepperConnected) { pill.hidden = true; return; }
+      try {
+        const d = await getJSON('/api/pepper/link?' + robotQuery());
+        pill.hidden = false;
+        const text = document.getElementById('signalText');
+        const tips = [];
+        if (d.signal_dbm !== null && d.signal_dbm !== undefined) {
+          const bars = signalBars(d.signal_dbm);
+          pill.className = 'signal-pill ' + (bars >= 3 ? 'good' : bars === 2 ? 'fair' : 'poor');
+          pill.querySelectorAll('i').forEach(function (bar, i) { bar.classList.toggle('on', i < bars); });
+          text.textContent = d.signal_dbm + ' dBm';
+          tips.push('Signal ' + d.signal_dbm + ' dBm (quality ' + d.quality + '/70) as Pepper hears the Jetson');
+        } else {
+          pill.className = 'signal-pill';
+          pill.querySelectorAll('i').forEach(function (bar) { bar.classList.remove('on'); });
+          text.textContent = d.wired ? 'Wired' : 'Signal ?';
+          if (d.signal_error) tips.push('Could not read Pepper\'s signal: ' + d.signal_error);
+        }
+        const ap = d.ap;
+        if (ap && ap.associated) {
+          tips.push('Link speed ' + (ap.tx_mbps || '?') + ' Mbit/s to Pepper, ' + (ap.rx_mbps || '?') + ' Mbit/s from Pepper');
+        } else if (ap && ap.mac) {
+          tips.push('Pepper (' + ap.mac + ') is not on the Jetson\'s Wi-Fi');
+        }
+        pill.title = tips.join('\n') || 'Pepper\'s Wi-Fi signal to the Jetson';
+      } catch (e) {
+        pill.title = 'Signal check failed: ' + e.message;
+      }
+      signalTimer = setTimeout(refreshSignal, SIGNAL_POLL_MS);
     }
   </script>
 </body>

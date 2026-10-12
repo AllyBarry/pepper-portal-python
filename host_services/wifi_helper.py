@@ -247,6 +247,7 @@ class Handler(BaseHTTPRequestHandler):
                                   "devices": device_overview()},
             "/networks": lambda: {"networks": scan_networks()},
             "/pepper": host_tools.find_pepper,
+            "/pepper/link": lambda: host_tools.pepper_link(self.query.get("ip")),
             "/doctor": lambda: {"report": host_tools.run_doctor(self.query.get("pepper_ip"))},
             "/logs/sources": lambda: {"sources": host_tools.log_sources(),
                                       "terminal_enabled": TERMINALS.enabled()},

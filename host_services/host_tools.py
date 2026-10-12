@@ -3,6 +3,7 @@
 Host-side tools behind the portal's Dashboard and its Pepper auto-discovery,
 served by wifi_helper.py (which already runs natively as root under systemd).
 
+    pepper_link()      Pepper's Wi-Fi signal as the AP sees it
     find_pepper()      who is on pepper-ap: DHCP leases + neighbour table,
                        each probed on NAOqi's port 9559. Pepper is known by
                        its MAC (PEPPER_MAC in .env) since its IP changes
@@ -153,6 +154,47 @@ def find_pepper():
         pepper = naoqi[0] if len(naoqi) == 1 else None
     return {"interface": AP_IFACE, "leases_readable": os.access(LEASES_FILE, os.R_OK),
             "pepper_mac": saved_mac, "pepper": pepper, "devices": found}
+
+
+def pepper_link(ip=None):
+    """
+    Pepper's Wi-Fi link as the AP sees it (`iw station dump`): signal dBm,
+    bitrates, idle time. Pepper is PEPPER_MAC, else whoever holds `ip`.
+    signal is None when the driver doesn't report it.
+    """
+    mac = read_env().get("PEPPER_MAC", "").lower() or None
+    if not mac and ip:
+        mac = (_neighbours().get(ip) or {}).get("mac") or (_leases().get(ip) or {}).get("mac")
+    if not mac:
+        return {"mac": None, "associated": False}
+    proc = subprocess.run(["iw", "dev", AP_IFACE, "station", "get", mac],
+                          capture_output=True, text=True, timeout=5)
+    if proc.returncode != 0:
+        return {"mac": mac, "associated": False}  # not on pepper-ap right now
+    fields = {}
+    for line in proc.stdout.splitlines():
+        key, sep, value = line.strip().partition(":")
+        if sep:
+            fields[key.strip()] = value.strip()
+
+    def first_number(key):
+        match = re.match(r"-?\d+(\.\d+)?", fields.get(key, ""))
+        return float(match.group(0)) if match else None
+
+    signal = first_number("signal avg")
+    if signal is None:
+        signal = first_number("signal")
+    if signal == 0:
+        signal = None  # out-of-tree drivers (the Mercusys MA14H) report a dummy 0 dBm
+    return {
+        "mac": mac,
+        "associated": True,
+        "signal_dbm": int(signal) if signal is not None else None,
+        "tx_mbps": first_number("tx bitrate"),
+        "rx_mbps": first_number("rx bitrate"),
+        "inactive_ms": first_number("inactive time"),
+        "connected_s": first_number("connected time"),
+    }
 
 
 def remember_pepper(mac):
