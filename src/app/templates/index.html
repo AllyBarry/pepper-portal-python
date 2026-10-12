@@ -288,6 +288,28 @@
     .camera-view { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 10; margin-top: 1rem; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; color: #71809b; background: radial-gradient(circle, #182136, #050810 75%); }
     .camera-view img { display: none; width: 100%; height: 100%; object-fit: contain; }
     .camera-placeholder { padding: 1rem; text-align: center; }
+    .teleop-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 1.25rem; }
+    .teleop-grid label { margin-top: .9rem; }
+    .teleop-grid label:first-child { margin-top: 0; }
+    .teleop-camera { margin-top: 0; aspect-ratio: 4 / 3; }
+    .teleop-cam-controls { margin-top: .6rem; }
+    .teleop-cam-controls select { width: auto; }
+    .teleop-keys { margin-left: .4rem; font-size: .7rem; font-weight: 500; letter-spacing: 0; text-transform: none; }
+    .teleop-stop { min-width: 120px; min-height: 48px; color: #fff; border-color: transparent; background: #d9364f; font-weight: 800; letter-spacing: .08em; }
+    .teleop-stop:hover:not([disabled]) { background: #ef4560; }
+    .teleop-drive-row { display: flex; justify-content: space-between; gap: 1rem; max-width: 400px; }
+    .joy-stick { display: grid; justify-items: center; gap: .35rem; }
+    .joy-caption { color: var(--muted); font-size: .72rem; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+    .joy-pad { position: relative; flex: 0 0 auto; width: min(170px, 40vw); aspect-ratio: 1; border: 1px solid var(--line-bright); border-radius: 50%; background: radial-gradient(circle, rgba(100,229,255,.08), rgba(3,7,14,.6) 70%); touch-action: none; user-select: none; cursor: grab; }
+    .joy-pad::before, .joy-pad::after { content: ""; position: absolute; background: var(--line); }
+    .joy-pad::before { left: 50%; top: 12%; bottom: 12%; width: 1px; }
+    .joy-pad::after { top: 50%; left: 12%; right: 12%; height: 1px; }
+    .joy-pad.horizontal::before { display: none; }
+    .joy-knob { position: absolute; z-index: 1; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: linear-gradient(145deg, var(--cyan), #86a8ff); box-shadow: 0 6px 20px rgba(0,0,0,.4); transition: transform .12s; }
+    .joy-pad.active .joy-knob { transition: none; }
+    .head-pad { position: relative; width: 100%; max-width: 260px; aspect-ratio: 3 / 2; border: 1px solid var(--line-bright); border-radius: 12px; background: rgba(3,7,14,.6); touch-action: none; user-select: none; cursor: crosshair; }
+    .head-dot { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 12px var(--cyan); pointer-events: none; }
+    .teleop-hint { margin: 1rem 0 0; font-size: .8rem; }
     .camera-live-badge { position: absolute; top: 1rem; left: 1rem; display: none; padding: .32rem .58rem; border-radius: 999px; color: #fff; background: rgba(255,71,99,.9); font-size: .7rem; font-weight: 800; letter-spacing: .1em; }
     .vision-query { display: grid; gap: .9rem; margin-top: 1rem; padding: 1rem; border: 1px solid rgba(100,229,255,.16); border-radius: 16px; background: rgba(6,11,21,.58); }
     .vision-query-grid { display: grid; grid-template-columns: minmax(180px,.7fr) minmax(260px,1.8fr) auto; gap: .75rem; align-items: end; }
@@ -314,6 +336,7 @@
       .topbar { left: 0; }
       .workspace { margin-left: 0; padding-bottom: 90px; }
       .conversation-layout, .section-grid { grid-template-columns: 1fr; }
+      .teleop-grid { grid-template-columns: 1fr; }
       .vision-query-grid { grid-template-columns: 1fr; }
       .conversation-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
@@ -429,6 +452,80 @@
       <div class="workspace-panel view-header" data-view="dashboard" hidden>
         <div><div class="view-kicker">Jetson &amp; Pepper</div><h1>Dashboard</h1><p>Pepper's battery and health, system checks, live logs from every service, and a shell on the Jetson.</p></div>
       </div>
+
+  <div class="card workspace-panel teleop-card" data-view="control" hidden>
+    <div class="card-header">
+      <div><h2>Teleop</h2><p id="teleopState" class="muted">Drive Pepper, point its head and see what it sees.</p></div>
+      <button class="teleop-stop" onclick="teleopStop()" title="Stop all movement (Space)">■ STOP</button>
+    </div>
+    <div class="teleop-grid">
+      <div class="teleop-vision">
+        <div class="camera-view teleop-camera">
+          <img id="teleopCamImage" alt="Live view from Pepper's camera" />
+          <div id="teleopCamPlaceholder" class="camera-placeholder">Pepper's view is off</div>
+          <span id="teleopCamBadge" class="camera-live-badge">LIVE</span>
+        </div>
+        <div class="control-strip teleop-cam-controls">
+          <button id="btnTeleopCam" class="primary-action" onclick="toggleTeleopCamera()">Show Pepper's view</button>
+          <select id="teleopCamSelect" aria-label="Camera" onchange="if (teleopCamRunning) teleopCamFrame()">
+            <option value="top">Top camera (eyes)</option>
+            <option value="bottom">Bottom camera (floor)</option>
+          </select>
+          <span id="teleopCamStatus" class="muted"></span>
+        </div>
+      </div>
+      <div class="teleop-drive">
+        <label>Drive <span class="muted teleop-keys">W A S D move · Q E turn · Space stop</span></label>
+        <div class="teleop-drive-row">
+          <div class="joy-stick">
+            <div id="moveStick" class="joy-pad" aria-label="Move: up is forward, sideways slides"><div class="joy-knob"></div></div>
+            <div class="joy-caption">Move</div>
+          </div>
+          <div class="joy-stick">
+            <div id="turnStick" class="joy-pad horizontal" aria-label="Turn: left or right"><div class="joy-knob"></div></div>
+            <div class="joy-caption">Turn</div>
+          </div>
+        </div>
+        <label for="teleopSpeed">Max speed <span id="teleopSpeedLabel">40%</span></label>
+        <input id="teleopSpeed" type="range" min="10" max="100" step="5" value="40"
+               oninput="document.getElementById('teleopSpeedLabel').textContent = this.value + '%'" />
+        <label>Step moves</label>
+        <div class="control-strip teleop-steps">
+          <button onclick="teleopStep(0.5, 0, 0)">↑ 0.5 m</button>
+          <button onclick="teleopStep(-0.3, 0, 0)">↓ 0.3 m</button>
+          <button onclick="teleopStep(0, 0, Math.PI / 2)">⟲ 90°</button>
+          <button onclick="teleopStep(0, 0, -Math.PI / 2)">⟳ 90°</button>
+          <button onclick="teleopStep(0, 0, Math.PI)">180°</button>
+        </div>
+      </div>
+      <div class="teleop-head">
+        <label>Head <span class="muted teleop-keys">arrow keys</span></label>
+        <div id="headPad" class="head-pad" aria-label="Head: drag to look around"><div id="headDot" class="head-dot"></div></div>
+        <div class="control-strip"><button onclick="teleopHead(0, 0)">Center head</button><button onclick="teleopHead(0, 0.35)">Look down</button></div>
+      </div>
+      <div class="teleop-body">
+        <label>Hands</label>
+        <div class="control-strip">
+          <button onclick="teleopHand('left', true)">Left open</button><button onclick="teleopHand('left', false)">Left close</button>
+          <button onclick="teleopHand('right', true)">Right open</button><button onclick="teleopHand('right', false)">Right close</button>
+        </div>
+        <label>Posture</label>
+        <div class="control-strip">
+          <button onclick="teleopPosture('StandInit')">Stand</button>
+          <button onclick="teleopPosture('StandZero')">Stand zero</button>
+          <button onclick="teleopPosture('Crouch')">Crouch</button>
+          <button onclick="setSleepMode(false)">Wake</button>
+        </div>
+        <label>Safety</label>
+        <div class="control-strip">
+          <button id="btnCollision" onclick="toggleCollisionProtection()">Collision protection: ?</button>
+        </div>
+      </div>
+    </div>
+    <p class="muted teleop-hint">If Pepper won't drive: wake it, close the charging flap on its back, and turn Animation
+      Mode off so Autonomous Life doesn't fight the controls. Pepper stops on its own if this page stops sending (dropped
+      Wi-Fi, closed tab).</p>
+  </div>
 
   <div class="card workspace-panel" data-view="control" hidden>
     <h2>Robot Modes</h2>
@@ -1000,6 +1097,7 @@
       if (viewName === 'tablet') refreshTablet();
       if (viewName === 'network') refreshNetwork();
       if (viewName === 'dashboard') enterDashboard(); else leaveDashboard();
+      if (viewName === 'control') teleopEnter(); else teleopLeave();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -1035,6 +1133,7 @@
     async function disconnectUi() {
       if (continuousConversationActive) await stopContinuousConversation();
       stopVision();
+      teleopLeave();
       if (modePollTimer) clearInterval(modePollTimer);
       modePollTimer = null;
       setConnectionUi(false, false);
@@ -3443,6 +3542,364 @@
         }
       }
       if (loop === termReadLoop) termReadLoop = 0;
+    }
+
+    // ================= Teleop (Robot Control) =================
+    // Driving is a stream: while any control is held the page re-sends
+    // /api/motion/drive every DRIVE_TICK_MS; robot.motion stops Pepper if the
+    // stream stops for 0.6 s, so a dropped phone can't leave it rolling.
+    const DRIVE_TICK_MS = 150;
+    const HEAD_YAW_RANGE = 2.0, HEAD_PITCH_MIN = -0.7068, HEAD_PITCH_MAX = 0.6371;
+    let teleopActive = false;
+    let teleopStateTimer = null;
+    let teleopHold = false;          // Basic Awareness paused so the head stays put
+    const joy = { x: 0, y: 0 };
+    const driveKeys = new Set();
+    let joyTurn = 0;
+    let sticks = [];
+    let driveTimer = null;
+    let driveInFlight = false;
+    let headTarget = { yaw: 0, pitch: 0 };
+    let headSendTimer = null;
+    let teleopCamRunning = false;
+    let teleopCamTimer = null;
+    let teleopCamUrl = null;
+
+    function robotBody(extra) {
+      return Object.assign({ ip: ipInput.value.trim(), port: Number(portInput.value.trim() || '9559') }, extra || {});
+    }
+
+    function teleopMessage(text, isError) {
+      const node = document.getElementById('teleopState');
+      node.textContent = text;
+      node.className = isError ? 'err' : 'muted';
+    }
+
+    function teleopEnter() {
+      teleopActive = true;
+      refreshTeleopState();
+    }
+
+    function teleopLeave() {
+      if (!teleopActive) return;
+      teleopActive = false;
+      clearTimeout(teleopStateTimer);
+      releaseDriveControls();
+      stopTeleopCamera();
+      releaseTeleopHold();
+    }
+
+    // ---- drive ----
+    function driveCommand() {
+      const scale = Number(document.getElementById('teleopSpeed').value) / 100;
+      const k = function (key) { return driveKeys.has(key) ? 1 : 0; };
+      const x = joy.x || (k('w') - k('s'));
+      const y = joy.y || (k('a') - k('d'));
+      const theta = joyTurn || (k('q') - k('e'));
+      return { x: x * scale, y: y * scale, theta: theta * scale };
+    }
+
+    function driveUpdate() {
+      const cmd = driveCommand();
+      const moving = cmd.x || cmd.y || cmd.theta;
+      if (moving && !driveTimer) {
+        driveTimer = setInterval(driveTick, DRIVE_TICK_MS);
+        driveTick();
+      } else if (!moving && driveTimer) {
+        clearInterval(driveTimer);
+        driveTimer = null;
+        postJSON('/api/motion/stop', robotBody(), 5000).catch(function () {});
+      }
+    }
+
+    function driveTick() {
+      if (driveInFlight) return;        // never queue: only the latest command matters
+      driveInFlight = true;
+      postJSON('/api/motion/drive', robotBody(driveCommand()), 3000)
+        .catch(function (e) { teleopMessage('Drive failed: ' + e.message, true); })
+        .finally(function () { driveInFlight = false; });
+    }
+
+    function releaseDriveControls() {
+      joy.x = joy.y = 0;
+      joyTurn = 0;
+      driveKeys.clear();
+      sticks.forEach(function (stick) { stick.reset(); });
+      driveUpdate();
+    }
+
+    async function teleopStop() {
+      joy.x = joy.y = 0; joyTurn = 0; driveKeys.clear();
+      if (driveTimer) { clearInterval(driveTimer); driveTimer = null; }
+      sticks.forEach(function (stick) { stick.reset(); });
+      try {
+        await postJSON('/api/motion/stop', robotBody(), 5000);
+        await postJSON('/api/stop-animation', robotBody(), 5000);
+        teleopMessage('Stopped.');
+      } catch (e) {
+        teleopMessage('Stop failed: ' + e.message, true);
+      }
+    }
+
+    async function teleopStep(x, y, theta) {
+      try {
+        await postJSON('/api/motion/move-to', robotBody({ x: x, y: y, theta: theta }), 5000);
+        teleopMessage('Moving… (STOP cancels)');
+        log('Step move x=' + x + ' y=' + y + ' theta=' + theta.toFixed(2));
+      } catch (e) {
+        teleopMessage('Step move failed: ' + e.message, true);
+      }
+    }
+
+    // A thumbstick: tracks one finger (so both sticks work at once on a phone)
+    // and reports -1..1 per axis, right/down positive, with a dead zone.
+    function makeStick(pad, horizontalOnly, onMove) {
+      const knob = pad.querySelector('.joy-knob');
+      let pointer = null;
+      function reset() {
+        pointer = null;
+        pad.classList.remove('active');
+        knob.style.transform = '';
+      }
+      function update(ev) {
+        const r = pad.getBoundingClientRect();
+        const radius = r.width / 2, max = radius - knob.offsetWidth / 2;
+        let dx = ev.clientX - (r.left + radius), dy = horizontalOnly ? 0 : ev.clientY - (r.top + radius);
+        const len = Math.hypot(dx, dy);
+        if (len > max) { dx = dx * max / len; dy = dy * max / len; }
+        knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        const dead = function (v) { return Math.abs(v) < 0.12 ? 0 : v; };
+        onMove(dead(dx / max), dead(dy / max));
+      }
+      pad.addEventListener('pointerdown', function (ev) {
+        if (pointer !== null) return;
+        pointer = ev.pointerId;
+        pad.setPointerCapture(ev.pointerId);
+        pad.classList.add('active');
+        update(ev);
+      });
+      pad.addEventListener('pointermove', function (ev) { if (ev.pointerId === pointer) update(ev); });
+      ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (type) {
+        pad.addEventListener(type, function (ev) {
+          if (ev.pointerId !== pointer) return;
+          reset();
+          onMove(0, 0);
+        });
+      });
+      return { reset: reset };
+    }
+
+    sticks = [
+      // Left: move. Up = forward; right = slide right (Pepper's +y is left).
+      makeStick(document.getElementById('moveStick'), false, function (nx, ny) {
+        joy.x = -ny; joy.y = -nx; driveUpdate();
+      }),
+      // Right: turn. Right = clockwise (Pepper's +theta is counter-clockwise).
+      makeStick(document.getElementById('turnStick'), true, function (nx) {
+        joyTurn = -nx; driveUpdate();
+      }),
+    ];
+
+    // ---- head ----
+    async function ensureTeleopHold() {
+      if (teleopHold || visionAttentionActive) return;
+      try {
+        await postJSON('/api/vision-attention', robotBody({ active: true }), 10000);
+        teleopHold = true;
+      } catch (e) { /* head still moves; tracking may pull it back */ }
+    }
+
+    function releaseTeleopHold() {
+      if (!teleopHold) return;
+      teleopHold = false;
+      if (visionAttentionActive) return;   // Vision still wants the head steady
+      postJSON('/api/vision-attention', robotBody({ active: false }), 10000).catch(function () {});
+    }
+
+    function placeHeadDot(yaw, pitch) {
+      const dot = document.getElementById('headDot');
+      dot.style.left = (50 - 50 * yaw / HEAD_YAW_RANGE) + '%';
+      dot.style.top = (100 * (pitch - HEAD_PITCH_MIN) / (HEAD_PITCH_MAX - HEAD_PITCH_MIN)) + '%';
+    }
+
+    function teleopHead(yaw, pitch) {
+      headTarget.yaw = Math.max(-HEAD_YAW_RANGE, Math.min(HEAD_YAW_RANGE, yaw));
+      headTarget.pitch = Math.max(HEAD_PITCH_MIN, Math.min(HEAD_PITCH_MAX, pitch));
+      placeHeadDot(headTarget.yaw, headTarget.pitch);
+      if (headSendTimer) return;               // throttle to ~8 updates/s
+      headSendTimer = setTimeout(async function () {
+        headSendTimer = null;
+        await ensureTeleopHold();
+        postJSON('/api/motion/head', robotBody({ yaw: headTarget.yaw, pitch: headTarget.pitch, speed: 0.25 }), 3000)
+          .catch(function (e) { teleopMessage('Head move failed: ' + e.message, true); });
+      }, 120);
+    }
+
+    (function setupHeadPad() {
+      const pad = document.getElementById('headPad');
+      let dragging = false;
+      function update(ev) {
+        const r = pad.getBoundingClientRect();
+        const fx = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+        const fy = Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height));
+        teleopHead((0.5 - fx) * 2 * HEAD_YAW_RANGE, HEAD_PITCH_MIN + fy * (HEAD_PITCH_MAX - HEAD_PITCH_MIN));
+      }
+      pad.addEventListener('pointerdown', function (ev) { dragging = true; pad.setPointerCapture(ev.pointerId); update(ev); });
+      pad.addEventListener('pointermove', function (ev) { if (dragging) update(ev); });
+      ['pointerup', 'pointercancel'].forEach(function (t) { pad.addEventListener(t, function () { dragging = false; }); });
+      placeHeadDot(0, 0);
+    })();
+
+    // ---- keyboard: WASD drive, QE turn, arrows head, Space stop ----
+    function teleopKeysLive(ev) {
+      if (!teleopActive) return false;
+      const tag = (ev.target && ev.target.tagName) || '';
+      return !/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || ev.target.type === 'range';
+    }
+
+    document.addEventListener('keydown', function (ev) {
+      if (!teleopKeysLive(ev) || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      const key = ev.key.toLowerCase();
+      if ('wasdqe'.indexOf(key) !== -1 && key.length === 1) {
+        ev.preventDefault();
+        if (!driveKeys.has(key)) { driveKeys.add(key); driveUpdate(); }
+      } else if (key === ' ') {
+        ev.preventDefault();
+        teleopStop();
+      } else if (key.indexOf('arrow') === 0) {
+        ev.preventDefault();
+        const step = 0.15;
+        teleopHead(headTarget.yaw + (key === 'arrowleft' ? step : key === 'arrowright' ? -step : 0),
+                   headTarget.pitch + (key === 'arrowdown' ? step : key === 'arrowup' ? -step : 0));
+      }
+    });
+    document.addEventListener('keyup', function (ev) {
+      const key = ev.key.toLowerCase();
+      if (driveKeys.delete(key)) driveUpdate();
+    });
+    window.addEventListener('blur', function () { if (teleopActive) releaseDriveControls(); });
+    document.addEventListener('visibilitychange', function () { if (document.hidden && teleopActive) releaseDriveControls(); });
+
+    // ---- hands / posture / safety ----
+    async function teleopHand(hand, open) {
+      try {
+        await postJSON('/api/motion/hand', robotBody({ hand: hand, open: open }), 8000);
+        teleopMessage((open ? 'Opened ' : 'Closed ') + hand + ' hand.');
+      } catch (e) { teleopMessage('Hand failed: ' + e.message, true); }
+    }
+
+    async function teleopPosture(name) {
+      teleopMessage('Going to ' + name + '…');
+      try {
+        const d = await postJSON('/api/motion/posture', robotBody({ name: name }), 30000);
+        teleopMessage(d.reached ? 'Posture: ' + name : 'Pepper could not reach ' + name + '.', !d.reached);
+      } catch (e) { teleopMessage('Posture failed: ' + e.message, true); }
+    }
+
+    let collisionOn = null;
+    async function toggleCollisionProtection() {
+      const enable = collisionOn === false;
+      if (!enable && !confirm('Turn OFF collision protection?\n\nPepper will drive into people and objects instead of stopping. Only do this while you are watching it.')) return;
+      try {
+        await postJSON('/api/motion/collision', robotBody({ enabled: enable }), 8000);
+        log('Collision protection ' + (enable ? 'on' : 'OFF'));
+        refreshTeleopState();
+      } catch (e) { teleopMessage('Could not change collision protection: ' + e.message, true); }
+    }
+
+    // ---- state ----
+    async function refreshTeleopState() {
+      clearTimeout(teleopStateTimer);
+      if (!teleopActive) return;
+      if (!pepperConnected) {
+        teleopMessage('Connect to Pepper to drive it.');
+        return;
+      }
+      try {
+        const d = await postJSON('/api/motion/state', robotBody(), 8000);
+        const parts = [d.awake ? 'Awake' : 'Resting (wake to drive)', d.moving ? 'Moving' : 'Still'];
+        if (d.posture) parts.push(d.posture);
+        if (d.position) {
+          parts.push('x ' + d.position[0].toFixed(2) + ' m · y ' + d.position[1].toFixed(2) +
+            ' m · ' + Math.round(d.position[2] * 180 / Math.PI) + '°');
+        }
+        if (!document.getElementById('teleopState').classList.contains('err') || !driveTimer) teleopMessage(parts.join(' · '));
+        if (d.head && !headSendTimer && !document.getElementById('headPad').matches(':active')) {
+          headTarget = { yaw: d.head[0], pitch: d.head[1] };
+          placeHeadDot(d.head[0], d.head[1]);
+        }
+        if (typeof d.collision_protection === 'boolean') {
+          collisionOn = d.collision_protection;
+          const btn = document.getElementById('btnCollision');
+          btn.textContent = 'Collision protection: ' + (collisionOn ? 'on' : 'OFF');
+          btn.classList.toggle('teleop-stop', !collisionOn);
+        }
+      } catch (e) {
+        teleopMessage('Could not read Pepper\'s state: ' + e.message, true);
+      }
+      teleopStateTimer = setTimeout(refreshTeleopState, 2000);
+    }
+
+    // ---- Pepper's view ----
+    function toggleTeleopCamera() {
+      if (teleopCamRunning) stopTeleopCamera(); else startTeleopCamera();
+    }
+
+    function startTeleopCamera() {
+      if (!pepperConnected) { document.getElementById('teleopCamStatus').textContent = 'Connect to Pepper first.'; return; }
+      teleopCamRunning = true;
+      document.getElementById('btnTeleopCam').textContent = 'Hide Pepper\'s view';
+      document.getElementById('teleopCamPlaceholder').textContent = 'Connecting to camera…';
+      document.getElementById('teleopCamStatus').textContent = '';
+      ensureTeleopHold();
+      teleopCamFrame();
+    }
+
+    function stopTeleopCamera() {
+      teleopCamRunning = false;
+      clearTimeout(teleopCamTimer);
+      const img = document.getElementById('teleopCamImage');
+      img.removeAttribute('src');
+      img.style.display = 'none';
+      if (teleopCamUrl) { URL.revokeObjectURL(teleopCamUrl); teleopCamUrl = null; }
+      document.getElementById('btnTeleopCam').textContent = 'Show Pepper\'s view';
+      document.getElementById('teleopCamBadge').style.display = 'none';
+      const ph = document.getElementById('teleopCamPlaceholder');
+      ph.textContent = 'Pepper\'s view is off';
+      ph.style.display = 'block';
+    }
+
+    async function teleopCamFrame() {
+      clearTimeout(teleopCamTimer);
+      if (!teleopCamRunning) return;
+      const params = new URLSearchParams({
+        ip: ipInput.value.trim(), port: portInput.value.trim() || '9559',
+        camera: document.getElementById('teleopCamSelect').value,
+        resolution: '320x240', fps: '5', t: String(Date.now())
+      });
+      try {
+        const res = await fetch('/api/camera-frame?' + params.toString(), { cache: 'no-store' });
+        if (!res.ok) {
+          let msg = 'Camera request failed (HTTP ' + res.status + ')';
+          try { msg = (await res.json()).error || msg; } catch (e) { /* keep HTTP error */ }
+          throw new Error(msg);
+        }
+        const blob = await res.blob();
+        if (!teleopCamRunning) return;
+        const img = document.getElementById('teleopCamImage');
+        const previous = teleopCamUrl;
+        teleopCamUrl = URL.createObjectURL(blob);
+        img.onload = function () { if (previous) URL.revokeObjectURL(previous); };
+        img.src = teleopCamUrl;
+        img.style.display = 'block';
+        document.getElementById('teleopCamPlaceholder').style.display = 'none';
+        document.getElementById('teleopCamBadge').style.display = 'inline-block';
+        document.getElementById('teleopCamStatus').textContent = '';
+        teleopCamTimer = setTimeout(teleopCamFrame, 120);
+      } catch (e) {
+        document.getElementById('teleopCamStatus').textContent = e.message;
+        teleopCamTimer = setTimeout(teleopCamFrame, 1500);
+      }
     }
   </script>
 </body>

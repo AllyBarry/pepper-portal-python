@@ -49,6 +49,53 @@ class SpeechAudioMotionTest(unittest.TestCase):
         self.assertTrue(pepper.motion.is_awake())
 
 
+class MotionTest(unittest.TestCase):
+    def tearDown(self):
+        from robot import motion
+        motion._drive_deadlines.clear()
+
+    def test_drive_clamps_and_watchdog_stops(self):
+        import time
+        from robot import motion
+        pepper, services = make_robot()
+        pepper.motion.drive(2.0, -0.5, 0.1)
+        self.assertEqual(services.calls[0], ("ALMotion", "moveToward", (1.0, -0.5, 0.1), False))
+        time.sleep(motion.DRIVE_TIMEOUT_SECONDS + 0.3)
+        self.assertEqual(services.methods()[-1], ("ALMotion", "stopMove"))
+
+    def test_drive_zero_and_stop_cancel_watchdog(self):
+        pepper, services = make_robot()
+        pepper.motion.drive(0.5, 0, 0)
+        pepper.motion.drive(0, 0, 0)
+        from robot import motion
+        self.assertNotIn("10.0.0.2:9559", motion._drive_deadlines)
+        self.assertEqual(services.methods(), [("ALMotion", "moveToward"), ("ALMotion", "stopMove")])
+
+    def test_look_clamps_to_joint_limits(self):
+        pepper, services = make_robot()
+        pepper.motion.look(5, -5, speed=3)
+        names, angles, speed = services.calls[0][2]
+        self.assertEqual(names, ["HeadYaw", "HeadPitch"])
+        self.assertEqual(angles, [2.0857, -0.7068])
+        self.assertEqual(speed, 1.0)
+
+    def test_hands_postures_and_validation(self):
+        pepper, services = make_robot(results={"ALRobotPosture": {"goToPosture": True}})
+        pepper.motion.hand("left", True)
+        pepper.motion.hand("right", False)
+        self.assertTrue(pepper.motion.go_to_posture("StandInit"))
+        self.assertEqual(services.methods(), [
+            ("ALMotion", "openHand"), ("ALMotion", "closeHand"), ("ALRobotPosture", "goToPosture")])
+        self.assertRaises(ValueError, pepper.motion.hand, "middle", True)
+        self.assertRaises(ValueError, pepper.motion.go_to_posture, "Handstand")
+
+    def test_move_to_is_async_by_default(self):
+        pepper, services = make_robot()
+        future = pepper.motion.move_to(0.5, 0, 1.57)
+        self.assertTrue(hasattr(future, "value"))
+        self.assertEqual(services.calls[0], ("ALMotion", "moveTo", (0.5, 0.0, 1.57), True))
+
+
 class TabletTest(unittest.TestCase):
     def test_show_video_and_image(self):
         pepper, services = make_robot()

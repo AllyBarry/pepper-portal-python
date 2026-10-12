@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import time
@@ -172,6 +173,42 @@ def http_json(url, timeout=5, data=None, method="GET"):
 
 
 # ---------------- host ----------------
+
+def dns_a(name, server, timeout=2):
+    """A records for `name` from one DNS server (stdlib, UDP). Raises on timeout/error."""
+    qid = os.urandom(2)
+    question = b"".join(bytes([len(p)]) + p.encode() for p in name.split(".")) + b"\0\0\1\0\1"
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(timeout)
+    try:
+        sock.sendto(qid + b"\1\0\0\1\0\0\0\0\0\0" + question, (server, 53))
+        data = sock.recv(512)
+    finally:
+        sock.close()
+    if data[:2] != qid:
+        raise RuntimeError("mismatched DNS reply")
+    if data[3] & 0x0F:
+        return []  # NXDOMAIN etc.
+
+    def skip_name(i):
+        while data[i]:
+            if data[i] & 0xC0 == 0xC0:
+                return i + 2
+            i += data[i] + 1
+        return i + 1
+
+    answers = struct.unpack(">H", data[6:8])[0]
+    i = skip_name(12) + 4
+    found = []
+    for _ in range(answers):
+        i = skip_name(i)
+        rtype, _, _, rdlen = struct.unpack(">HHIH", data[i:i + 10])
+        i += 10
+        if rtype == 1 and rdlen == 4:
+            found.append(socket.inet_ntoa(data[i:i + 4]))
+        i += rdlen
+    return found
+
 
 def check_host():
     out = []
@@ -726,6 +763,30 @@ def check_portal(env):
         return out
     out.append(Result("portal /", PASS, "HTTP %d" % status))
 
+    # Port 80 so phones can open plain http://pepper.portal (docker-compose.yaml).
+    status, _, err = http_json("http://127.0.0.1:80/", timeout=5)
+    if status in (200, 302):
+        out.append(Result("portal on port 80", PASS, "HTTP %d" % status))
+    else:
+        out.append(Result("portal on port 80", WARN, err or "HTTP %d" % status,
+                          fix='keep "80:5000" under pepper-portal ports in docker-compose.yaml, '
+                              "then docker compose up -d pepper-portal"))
+
+    # http://pepper.portal for phones on pepper-ap (install/setup_portal_name.sh).
+    ap_address = env.get("PEPPER_AP_ADDRESS", "192.168.50.1")
+    try:
+        answers = dns_a("pepper.portal", ap_address)
+    except Exception as e:
+        out.append(Result("pepper.portal name", WARN, "no DNS answer from %s (%s)" % (ap_address, e),
+                          fix="is pepper-ap up? then: sudo ./install/setup_portal_name.sh"))
+    else:
+        if ap_address in answers:
+            out.append(Result("pepper.portal name", PASS, "%s answers pepper.portal -> %s" % (ap_address, ap_address)))
+        else:
+            out.append(Result("pepper.portal name", WARN,
+                              "%s answers %s" % (ap_address, ", ".join(answers) or "nothing"),
+                              fix="sudo ./install/setup_portal_name.sh"))
+
     status, body, err = http_json(base + "/api/services", timeout=15)
     if status != 200 or not body:
         out.append(Result("portal /api/services", WARN, err or "HTTP %d" % status))
@@ -759,6 +820,21 @@ def check_portal(env):
     else:
         out.append(Result("wifi helper", WARN, err or "HTTP %d" % status,
                           fix="sudo ./install/setup_wifi_helper.sh  (needed for the portal's Network page)"))
+        return out
+
+    # The helper also serves the Dashboard and Pepper discovery; a process
+    # started before those were added answers them with 404.
+    status, body, err = http_json("http://127.0.0.1:8767/pepper", timeout=10)
+    if status == 404:
+        out.append(Result("host helper up to date", WARN, "running code older than host_services/",
+                          fix="sudo systemctl restart pepper-wifi-helper"))
+    elif status == 200 and isinstance(body, dict):
+        pepper = body.get("pepper")
+        out.append(Result("host helper up to date", PASS,
+                          "Pepper %s" % ("at %s (MAC %s)" % (pepper["ip"], pepper["mac"]) if pepper
+                                         else "not found on pepper-ap")))
+    else:
+        out.append(Result("host helper up to date", WARN, err or "HTTP %d" % status))
 
     return out
 

@@ -133,6 +133,25 @@ Logs: `sudo journalctl -u pepper-wifi-helper.service -f`.
 
 After pulling changes to `host_services/`, restart it: `sudo systemctl restart pepper-wifi-helper`.
 
+## Opening the portal at http://pepper.portal
+
+Phones on Pepper's Wi-Fi (`pepper-ap`) can open **http://pepper.portal** instead of typing the Jetson's IP:
+
+```bash
+sudo ./install/setup_portal_name.sh            # once; pepper-ap drops for a few seconds
+sudo ./install/setup_portal_name.sh --remove   # undo
+```
+
+It adds one `address=` line to `/etc/NetworkManager/dnsmasq-shared.d/`, which is read by the dnsmasq that already
+serves DHCP and DNS on `pepper-ap`. The Jetson's hostname and everything else stay as they are. Notes:
+- It only works on `pepper-ap`. Phones on the lab Wi-Fi ask the lab router.
+- `.portal` isn't a public domain ending, so type `http://pepper.portal` the first time or the browser may search
+  for it. After that, use a bookmark or home-screen shortcut.
+- An Android "Private DNS" set to a specific provider bypasses the Jetson. Set it to Off or Automatic.
+- The portal is also published on port 80 (`docker-compose.yaml`) so no `:8081` is needed. 8081 still works and
+  is what the tablet uses. If something else ever takes port 80, the portal container won't start; remove the
+  `"80:5000"` line.
+
 ## Finding Pepper, and the Dashboard
 
 **Pepper is identified by MAC address, not IP.** The Jetson is Pepper's DHCP server (NetworkManager's dnsmasq on

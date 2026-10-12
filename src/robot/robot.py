@@ -33,7 +33,7 @@ class Robot(object):
 
         robot.speech      say / stop
         robot.audio       play sound files stored on Pepper
-        robot.motion      animations, wake / rest
+        robot.motion      animations, wake / rest, driving, head, hands, posture
         robot.behaviors   installed Choregraphe behaviors
         robot.awareness   Autonomous Life, head tracking
         robot.camera      head-camera snapshots
@@ -58,7 +58,7 @@ class Robot(object):
 
         self.speech = Speech(services)
         self.audio = Audio(services)
-        self.motion = Motion(services)
+        self.motion = Motion(services, key)
         self.behaviors = Behaviors(services)
         self.awareness = Awareness(services, key)
         self.camera = Camera(services)

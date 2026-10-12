@@ -188,6 +188,11 @@ services:
       # Host 8080 is commonly taken by SSH tunnels to the cluster (see README),
       # which shadow Docker's mapping on loopback. 8081 avoids the clash.
       - "8081:5000"
+      # Plain http://pepper.portal on phones (install/setup_portal_name.sh).
+      # 8081 stays the canonical port: the tablet and PORTAL_HOST_PORT use it.
+      # If something else on the Jetson ever takes port 80, this container
+      # fails to start ("address already in use") -- delete this line.
+      - "80:5000"
 
   pepper-portal-arm-setup:
     image: tonistiigi/binfmt:latest
