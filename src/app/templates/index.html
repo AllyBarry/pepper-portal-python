@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Pepper Control</title>
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='pepper_heart.png') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/xterm/xterm.css') }}" />
 
   <style>
     :root {
@@ -157,7 +158,50 @@
     .connect-form { display: grid; gap: 1rem; margin-top: 2rem; }
     .connect-fields { display: grid; grid-template-columns: 1fr 110px; gap: .75rem; }
     .connect-submit { width: 100%; min-height: 52px; margin-top: .3rem; font-size: 1rem; }
+    .dash-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .7rem; }
+    .dash-tile { padding: .85rem 1rem; border: 1px solid var(--line); border-radius: 12px; background: rgba(3,7,14,.4); }
+    .dash-tile .tile-label { color: var(--muted); font-size: .7rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+    .dash-tile .tile-value { margin-top: .3rem; font-size: 1.35rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .dash-tile .tile-sub { color: var(--muted); font-size: .76rem; }
+    .meter { height: 5px; margin-top: .5rem; border-radius: 3px; background: rgba(255,255,255,.07); overflow: hidden; }
+    .meter > span { display: block; height: 100%; background: var(--green); }
+    .meter.low > span { background: var(--amber); }
+    .meter.critical > span { background: var(--red); }
+    .doctor-results { display: grid; gap: 1rem; margin-top: 1rem; }
+    .doctor-group h3 { margin: 0 0 .35rem; color: #c8d4ee; font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; }
+    .doctor-row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: .7rem; padding: .45rem 0; border-top: 1px solid var(--line); font-size: .86rem; }
+    .doctor-row .fix { color: var(--amber); font-size: .78rem; }
+    .doctor-row .detail { color: var(--muted); font-size: .8rem; word-break: break-word; }
+    .status-tag { align-self: start; padding: .12rem 0; border-radius: 6px; font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-align: center; }
+    .status-tag.PASS { color: #c8ffe0; background: rgba(90,220,150,.14); }
+    .status-tag.WARN { color: #ffe6b8; background: rgba(255,198,109,.16); }
+    .status-tag.FAIL { color: #ffd0d0; background: rgba(255,110,110,.18); }
+    .status-tag.SKIP { color: #b9c2d3; background: rgba(160,170,190,.12); }
+    .log-toolbar { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.5fr) auto; gap: .55rem; align-items: center; margin-bottom: .7rem; }
+    .log-follow { display: flex; align-items: center; gap: .4rem; margin: 0; white-space: nowrap; }
+    .log-view { height: 460px; overflow: auto; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 12px; background: #03070e; font: .76rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+    .log-line.warn { color: var(--amber); }
+    .log-line.error { color: var(--red); }
+    .log-line .ts { color: #56647d; }
+    .log-status { margin-top: .4rem; font-size: .76rem; }
+    .activity-log { height: 260px; }
+    .term-login { display: grid; gap: .4rem; max-width: 460px; }
+    .term-login-row { display: grid; grid-template-columns: 1fr auto; gap: .55rem; }
+    .terminal-host { height: 440px; padding: .5rem; border: 1px solid var(--line); border-radius: 12px; background: #03070e; overflow: hidden; }
+    .term-keys { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; }
+    .term-keys button { padding: .4rem .7rem; font: .75rem ui-monospace, Menlo, monospace; }
     #connStatus { min-height: 24px; margin-top: .8rem; }
+    .discover-box { display: grid; gap: .55rem; margin-top: 2rem; padding: 1rem 1.1rem; border: 1px solid var(--line); border-radius: 14px; background: rgba(3,7,14,.45); }
+    .discover-line { display: flex; align-items: center; gap: .7rem; font-weight: 700; }
+    .discover-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: #64738e; }
+    .discover-dot.searching { background: var(--amber); animation: pulseDot 1.2s ease-in-out infinite; }
+    .discover-dot.found { background: var(--green); box-shadow: 0 0 12px var(--green); }
+    .discover-dot.missing { background: var(--red); }
+    @keyframes pulseDot { 50% { opacity: .3; } }
+    .discover-actions { margin-top: .2rem; }
+    .link-button { padding: .5rem .2rem; border-color: transparent; color: var(--cyan); background: transparent; font-size: .82rem; }
+    .link-button:hover:not([disabled]) { background: transparent; box-shadow: none; text-decoration: underline; }
+    #manualConnect { margin-top: 1rem; }
     .security-note { display: flex; gap: .65rem; margin-top: 1.5rem; color: #64738e; font-size: .78rem; line-height: 1.5; }
     .preview-link { display: inline-block; margin-top: .4rem; color: #8494b1; font-size: .78rem; text-decoration: none; }
     .preview-link:hover { color: var(--cyan); }
@@ -260,7 +304,11 @@
       .pepper-orbit { opacity: .5; }
       .sidebar { inset: auto 0 0; width: auto; height: 70px; flex-direction: row; align-items: center; padding: .55rem; border-top: 1px solid var(--line); border-right: 0; }
       .sidebar .brand, .nav-label, .sidebar-footer { display: none; }
-      .nav-list { grid-template-columns: repeat(5,1fr); width: 100%; gap: .2rem; }
+      .nav-list { grid-auto-flow: column; grid-auto-columns: minmax(66px, 1fr); width: 100%; gap: .2rem; overflow-x: auto; }
+      .log-toolbar { grid-template-columns: 1fr 1fr; }
+      .log-toolbar #logSource, .log-toolbar #logFilter { grid-column: 1 / -1; }
+      .log-view { height: 60vh; }
+      .terminal-host { height: 55vh; }
       .nav-button { flex-direction: column; gap: .15rem; justify-content: center; padding: .45rem .2rem; font-size: .65rem; text-align:center; }
       .nav-button.active { box-shadow: inset 0 -2px var(--cyan); }
       .topbar { left: 0; }
@@ -302,12 +350,24 @@
         <div class="connect-icon"><img src="{{ url_for('static', filename='pepper_heart.png') }}" alt="" /></div>
         <div class="eyebrow">Robot link</div>
         <h2>Connect to Pepper</h2>
-        <p class="muted">Make sure Pepper has finished booting and is on the same network as this computer.</p>
-        <div class="connect-form">
+        <p class="muted">The Jetson finds Pepper on its own Wi-Fi by MAC address and connects as soon as Pepper has booted.</p>
+        <div id="discoverBox" class="discover-box" role="status">
+          <div class="discover-line"><span id="discoverDot" class="discover-dot searching"></span><span id="discoverText">Looking for Pepper…</span></div>
+          <div id="discoverDetail" class="muted"></div>
+          <div class="control-strip discover-actions">
+            <button id="btnRescan" onclick="discoverPepper(true)">Search again</button>
+            <button id="btnManualToggle" class="link-button" onclick="toggleManualConnect()">Enter IP manually</button>
+          </div>
+        </div>
+        <div id="manualConnect" class="connect-form" hidden>
           <div class="connect-fields">
             <div>
               <label for="pepperIp">Pepper IP address</label>
-              <input id="pepperIp" inputmode="decimal" placeholder="192.168.1.4" autocomplete="off" />
+              <!-- Not inputmode="decimal": phones set to a comma-decimal locale (en-ZA)
+                   show a keypad with "," and no "." -->
+              <input id="pepperIp" type="text" inputmode="url" placeholder="192.168.50.226" autocomplete="off"
+                     autocapitalize="off" autocorrect="off" spellcheck="false"
+                     oninput="this.value = this.value.replace(/,/g, '.')" />
             </div>
             <div>
               <label for="pepperPort">Port</label>
@@ -318,7 +378,7 @@
         </div>
         <div id="connStatus" class="muted" role="status">Ready when Pepper is.</div>
         <a class="preview-link" href="?preview=1">Preview the interface without Pepper →</a>
-        <div class="security-note"><span>◈</span><span>The robot address stays in this browser. Llama and Pepper microphone transcription run locally on this Mac.</span></div>
+        <div class="security-note"><span>◈</span><span>Pepper's MAC address is saved on the Jetson (PEPPER_MAC in .env). Llama and Pepper microphone transcription run locally on the Jetson.</span></div>
       </div>
     </div>
   </section>
@@ -334,7 +394,7 @@
         <button class="nav-button" data-view="media" onclick="showView('media')"><span class="nav-icon">♫</span><span>Media</span></button>
         <button class="nav-button" data-view="tablet" onclick="showView('tablet')"><span class="nav-icon">▭</span><span>Tablet</span></button>
         <button class="nav-button" data-view="network" onclick="showView('network')"><span class="nav-icon">⇅</span><span>Network</span></button>
-        <button class="nav-button" data-view="diagnostics" onclick="showView('diagnostics')"><span class="nav-icon">⌁</span><span>Diagnostics</span></button>
+        <button class="nav-button" data-view="dashboard" onclick="showView('dashboard')"><span class="nav-icon">▤</span><span>Dashboard</span></button>
       </nav>
       <div class="sidebar-footer">Pepper Portal<br>Local session · Private network</div>
     </aside>
@@ -366,8 +426,8 @@
       <div class="workspace-panel view-header" data-view="network" hidden>
         <div><div class="view-kicker">Lab network</div><h1>Network</h1><p>Pick the Wi-Fi network the Jetson's internal NIC uses for internet. Pepper reaches the internet through it.</p></div>
       </div>
-      <div class="workspace-panel view-header" data-view="diagnostics" hidden>
-        <div><div class="view-kicker">System trace</div><h1>Diagnostics</h1><p>Inspect local services, activity logs and script output while refining the experience.</p></div>
+      <div class="workspace-panel view-header" data-view="dashboard" hidden>
+        <div><div class="view-kicker">Jetson &amp; Pepper</div><h1>Dashboard</h1><p>Pepper's battery and health, system checks, live logs from every service, and a shell on the Jetson.</p></div>
       </div>
 
   <div class="card workspace-panel" data-view="control" hidden>
@@ -633,16 +693,6 @@
     </aside>
   </div>
 
-  <div class="card workspace-panel" data-view="diagnostics" hidden>
-    <h2>Local Intelligence</h2>
-    <p class="muted">Ollama and MLX Whisper run on this Mac. Their live readiness appears in the Conversation workspace.</p>
-    <div class="control-strip">
-      <button onclick="checkLocalAi(); checkLocalSpeech();">Run service check</button>
-      <a href="https://ollama.com/download" target="_blank" rel="noopener">Ollama</a>
-      <a href="https://pypi.org/project/mlx-whisper/" target="_blank" rel="noopener">MLX Whisper</a>
-    </div>
-  </div>
-
   <div class="card workspace-panel" data-view="media" hidden>
     <h2>Upload</h2>
     <p class="muted">Drop any file here. It's stored on the Jetson in <code>media/</code>. Audio (.wav, .mp3, .ogg)
@@ -792,14 +842,87 @@
     <div id="sceneStatus" class="muted" style="margin-top:.5rem"></div>
   </div>
 
-  <div class="card workspace-panel" data-view="diagnostics" hidden>
-    <h2>Logs</h2>
-    <div id="logs" class="stack" style="min-height:100px"></div>
+  <div class="card workspace-panel" data-view="dashboard" hidden>
+    <div class="card-header">
+      <div><h2>Pepper</h2><p id="dashPepperNote" class="muted">Battery over NAOqi; uptime, memory and disk over SSH.</p></div>
+      <button onclick="refreshDashPepper()">Refresh</button>
+    </div>
+    <div id="dashPepperTiles" class="dash-tiles"></div>
+  </div>
+
+  <div class="card workspace-panel" data-view="dashboard" hidden>
+    <div class="card-header">
+      <div><h2>System checks</h2><p class="muted">Runs <code>doctor.py</code> on the Jetson against the connected Pepper.</p></div>
+      <button id="btnDoctor" class="primary-action" onclick="runDoctor()">Run checks</button>
+    </div>
+    <div id="doctorSummary" class="muted">Not run yet.</div>
+    <div id="doctorResults" class="doctor-results"></div>
+  </div>
+
+  <div class="card workspace-panel" data-view="dashboard" hidden>
+    <div class="card-header">
+      <div><h2>Logs</h2><p class="muted">Docker containers and system services on the Jetson, and NAOqi's logs on Pepper.</p></div>
+    </div>
+    <div class="log-toolbar">
+      <select id="logSource" aria-label="Log source" onchange="refreshLog(true)"></select>
+      <select id="logLevel" aria-label="Level" onchange="renderLog()">
+        <option value="all">All levels</option>
+        <option value="warn">Warnings + errors</option>
+        <option value="error">Errors only</option>
+      </select>
+      <select id="logLines" aria-label="Lines" onchange="refreshLog(true)">
+        <option value="200">200 lines</option>
+        <option value="500" selected>500 lines</option>
+        <option value="2000">2000 lines</option>
+      </select>
+      <input id="logFilter" type="search" placeholder="Filter…" autocomplete="off" autocapitalize="off" spellcheck="false" oninput="renderLog()" />
+      <label class="log-follow"><input id="logFollow" type="checkbox" checked onchange="scheduleLogRefresh()" /> Follow</label>
+    </div>
+    <div id="logView" class="log-view" tabindex="0" aria-live="off"></div>
+    <div id="logStatus" class="muted log-status"></div>
+  </div>
+
+  <div class="card workspace-panel" data-view="dashboard" hidden>
+    <div class="card-header">
+      <div><h2>Portal activity</h2><p class="muted">What this page has done since it was opened: connections, commands sent to Pepper, script output and errors.</p></div>
+      <button class="ghost-button" onclick="logs.textContent = ''">Clear</button>
+    </div>
+    <div id="logs" class="log-view activity-log"></div>
+  </div>
+
+  <div class="card workspace-panel" data-view="dashboard" hidden>
+    <div class="card-header">
+      <div><h2>Terminal</h2><p class="muted">A shell on the Jetson as the <code>jetson</code> user. Anything typed here really runs.</p></div>
+      <div class="control-strip">
+        <button id="btnTermNew" onclick="termNewSession()" hidden>New session</button>
+        <button id="btnTermLogout" class="ghost-button" onclick="termLogout()" hidden>Lock</button>
+      </div>
+    </div>
+    <form id="termLogin" class="term-login" onsubmit="termLogin(event)">
+      <label for="termPassword">Terminal password</label>
+      <div class="term-login-row">
+        <input id="termPassword" type="password" autocomplete="current-password" placeholder="PORTAL_TERMINAL_PASSWORD" />
+        <button class="primary-action" type="submit">Unlock</button>
+      </div>
+      <div id="termLoginStatus" class="muted"></div>
+    </form>
+    <div id="termWrap" hidden>
+      <div id="terminal" class="terminal-host"></div>
+      <div class="term-keys" aria-label="Terminal keys">
+        <button data-key="\u001b">Esc</button><button data-key="\t">Tab</button>
+        <button data-key="\u0003">Ctrl-C</button><button data-key="\u0004">Ctrl-D</button>
+        <button data-key="\u001b[A">↑</button><button data-key="\u001b[B">↓</button>
+        <button data-key="\u001b[D">←</button><button data-key="\u001b[C">→</button>
+      </div>
+      <div id="termStatus" class="muted"></div>
+    </div>
   </div>
 
     </main>
   </div>
 
+  <script src="{{ url_for('static', filename='vendor/xterm/xterm.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/xterm/addon-fit.js') }}"></script>
   <script>
     // safer JSON helper that tolerates non-JSON error pages
     async function postJSON(url, data, timeoutMs) {
@@ -863,7 +986,7 @@
       media: 'Media workspace',
       tablet: 'Tablet workspace',
       network: 'Network workspace',
-      diagnostics: 'Diagnostics workspace'
+      dashboard: 'Dashboard'
     };
 
     function showView(viewName) {
@@ -876,6 +999,7 @@
       document.getElementById('topbarContext').textContent = viewLabels[viewName] || 'Pepper workspace';
       if (viewName === 'tablet') refreshTablet();
       if (viewName === 'network') refreshNetwork();
+      if (viewName === 'dashboard') enterDashboard(); else leaveDashboard();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -917,6 +1041,8 @@
       document.getElementById('appShell').classList.add('locked');
       document.getElementById('connectGate').classList.remove('hidden');
       connStatus.textContent = 'Disconnected. Ready to reconnect when you are.';
+      autoConnect = false;
+      setDiscover('', 'Disconnected', 'Search again to find and reconnect to Pepper.');
       if (interfacePreview) window.history.replaceState({}, '', window.location.pathname);
     }
 
@@ -935,6 +1061,90 @@
       portInput.value = savedPort();
     }
 
+    // ---- Pepper discovery: the Jetson is Pepper's DHCP server, so it knows
+    // Pepper's IP; Pepper itself is identified by MAC (PEPPER_MAC in .env).
+    let lastDiscovery = null;
+    let discoverTimer = null;
+    let autoConnect = true;          // off once the user disconnects or goes manual
+    const DISCOVER_RETRY_MS = 5000;
+
+    function setDiscover(state, text, detail) {
+      document.getElementById('discoverDot').className = 'discover-dot ' + state;
+      document.getElementById('discoverText').textContent = text;
+      document.getElementById('discoverDetail').textContent = detail || '';
+    }
+
+    function gateOpen() { return !document.getElementById('connectGate').classList.contains('hidden'); }
+
+    function toggleManualConnect(show) {
+      const box = document.getElementById('manualConnect');
+      const open = show === undefined ? box.hidden : show;
+      box.hidden = !open;
+      document.getElementById('btnManualToggle').textContent = open ? 'Hide manual entry' : 'Enter IP manually';
+      if (open) {
+        autoConnect = false;
+        clearTimeout(discoverTimer);
+        ipInput.focus();
+      }
+    }
+
+    async function discoverPepper(userAsked) {
+      clearTimeout(discoverTimer);
+      if (userAsked) autoConnect = true;
+      if (pepperConnected || pepperConnectActive || !gateOpen()) return;
+      setDiscover('searching', 'Looking for Pepper…', 'Checking devices on the Jetson\'s Pepper Wi-Fi.');
+      let data;
+      try {
+        const res = await fetch('/api/pepper/discover', { cache: 'no-store' });
+        data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Discovery failed');
+      } catch (e) {
+        setDiscover('missing', 'Can\'t search for Pepper', e.message + ' — enter the IP manually.');
+        return;
+      }
+      lastDiscovery = data;
+      const pepper = data.pepper;
+      const others = data.devices.filter(function (d) { return d.naoqi; });
+      if (pepper && pepper.naoqi) {
+        setDiscover('found', 'Found Pepper at ' + pepper.ip, 'MAC ' + (pepper.mac || 'unknown') +
+          (data.pepper_mac ? '' : ' · will be remembered after connecting'));
+        ipInput.value = pepper.ip;
+        if (!portInput.value.trim()) portInput.value = '9559';
+        if (autoConnect) await testConnect();
+      } else if (pepper) {
+        setDiscover('searching', 'Pepper is on the network, still booting', 'MAC ' + pepper.mac + ' at ' + pepper.ip + ' · NAOqi not up yet.');
+      } else if (data.pepper_mac) {
+        setDiscover('missing', 'Pepper isn\'t on the Jetson\'s Wi-Fi yet', 'Waiting for MAC ' + data.pepper_mac +
+          '. Turn Pepper on or check it joined the pepper-ap network.');
+      } else if (others.length > 1) {
+        setDiscover('missing', others.length + ' robots found', others.map(function (d) { return d.ip; }).join(', ') +
+          ' — enter the one you want manually; it will be remembered.');
+      } else {
+        setDiscover('missing', 'No Pepper found yet', data.devices.length + ' device(s) on pepper-ap, none running NAOqi.');
+      }
+      if (autoConnect && !pepperConnected && gateOpen()) {
+        discoverTimer = setTimeout(discoverPepper, DISCOVER_RETRY_MS);
+      }
+    }
+
+    // Save the MAC of the Pepper just connected to, so every later lookup uses it.
+    async function rememberPepperMac(ip) {
+      try {
+        let found = lastDiscovery && lastDiscovery.devices.find(function (d) { return d.ip === ip; });
+        if (!found || !found.mac) {
+          const res = await fetch('/api/pepper/discover', { cache: 'no-store' });
+          lastDiscovery = await res.json();
+          found = (lastDiscovery.devices || []).find(function (d) { return d.ip === ip; });
+        }
+        if (!found || !found.mac || lastDiscovery.pepper_mac === found.mac) return;
+        await postJSON('/api/pepper/remember', { mac: found.mac }, 10000);
+        lastDiscovery.pepper_mac = found.mac;
+        log('Remembered Pepper by MAC ' + found.mac);
+      } catch (e) {
+        log('Could not save Pepper\'s MAC: ' + e.message);
+      }
+    }
+
     async function testConnect() {
       if (pepperConnectActive) return;
       const ip = ipInput.value.trim();
@@ -950,6 +1160,7 @@
         connStatus.innerHTML = '<span class="ok">Connected. NAOqi services available.</span>';
         log('Connected to ' + ip + ':' + port);
         startModePolling();
+        rememberPepperMac(ip);
       } catch (e) {
         setConnectionUi(false, false);
         if (modePollTimer) clearInterval(modePollTimer);
@@ -1934,6 +2145,7 @@
       setConnectionUi(false, false);
       showView('conversation');
       if (interfacePreview) enterInterfacePreview();
+      else discoverPepper();
     });
     // Animation buttons logic
     function getAnimButtons() { return Array.prototype.slice.call(document.querySelectorAll('.anim-btn')); }
@@ -2827,6 +3039,411 @@
 
     window.addEventListener('load', refreshMedia);
 
+
+    // ================= Dashboard =================
+    let dashActive = false;
+    let dashPepperTimer = null;
+    let logTimer = null;
+    let logLines = [];
+    let logLoading = false;
+    let logSourcesLoaded = false;
+    const LOG_FOLLOW_MS = 3000;
+    const DASH_PEPPER_MS = 20000;
+
+    function el(tag, cls, text) {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text !== undefined && text !== null) node.textContent = text;
+      return node;
+    }
+
+    // getJSON, but {ok: false} throws.
+    async function dashJSON(url) {
+      const json = await getJSON(url);
+      if (!json.ok) throw new Error(json.error || 'Request failed');
+      return json;
+    }
+
+    function enterDashboard() {
+      dashActive = true;
+      refreshDashPepper();
+      loadLogSources();   // re-listed each visit: Pepper's logs appear once connected
+      termShow();
+    }
+
+    function leaveDashboard() {
+      if (!dashActive) return;
+      dashActive = false;
+      clearTimeout(dashPepperTimer);
+      clearTimeout(logTimer);
+    }
+
+    // ---- Pepper tiles ----
+    function tile(label, value, sub, meterPct, meterClass) {
+      const t = el('div', 'dash-tile');
+      t.appendChild(el('div', 'tile-label', label));
+      t.appendChild(el('div', 'tile-value', value));
+      if (sub) t.appendChild(el('div', 'tile-sub', sub));
+      if (meterPct !== undefined && meterPct !== null) {
+        const m = el('div', 'meter ' + (meterClass || ''));
+        const bar = el('span');
+        bar.style.width = Math.max(0, Math.min(100, meterPct)) + '%';
+        m.appendChild(bar);
+        t.appendChild(m);
+      }
+      return t;
+    }
+
+    function formatUptime(s) {
+      if (s === null || s === undefined) return '—';
+      const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+      return d ? d + 'd ' + h + 'h' : h ? h + 'h ' + m + 'm' : m + 'm';
+    }
+
+    async function refreshDashPepper() {
+      clearTimeout(dashPepperTimer);
+      const tiles = document.getElementById('dashPepperTiles');
+      const note = document.getElementById('dashPepperNote');
+      if (!pepperConnected) {
+        tiles.replaceChildren();
+        note.textContent = 'Connect to Pepper to see its battery and health.';
+        return;
+      }
+      try {
+        const d = await dashJSON('/api/dashboard/pepper?' + robotQuery());
+        const out = [];
+        if (d.battery) {
+          const c = d.battery.charge;
+          out.push(tile('Battery', c + '%', d.battery.charging ? 'Charging' : 'On battery', c, c < 20 ? 'critical' : c < 40 ? 'low' : ''));
+        }
+        if (d.name) out.push(tile('Robot', d.name, 'NAOqi ' + (d.version || '?')));
+        const h = d.health;
+        if (h) {
+          out.push(tile('Uptime', formatUptime(h.uptime_s), 'load ' + (h.load || []).join(' ')));
+          if (h.mem_total_mb) {
+            const pct = Math.round(100 * h.mem_used_mb / h.mem_total_mb);
+            out.push(tile('Memory', pct + '%', h.mem_used_mb + ' / ' + h.mem_total_mb + ' MB', pct, pct > 90 ? 'critical' : pct > 75 ? 'low' : ''));
+          }
+          if (h.disk_used_pct !== null) {
+            out.push(tile('Disk /home/nao', h.disk_used_pct + '%', 'used', h.disk_used_pct,
+              h.disk_used_pct > 90 ? 'critical' : h.disk_used_pct > 75 ? 'low' : ''));
+          }
+        }
+        out.push(tile('Address', ipInput.value.trim(), lastDiscovery && lastDiscovery.pepper_mac ? 'MAC ' + lastDiscovery.pepper_mac : 'MAC not saved yet'));
+        tiles.replaceChildren.apply(tiles, out);
+        const problems = [d.naoqi_error && 'NAOqi: ' + d.naoqi_error, d.ssh_error && 'SSH: ' + d.ssh_error].filter(Boolean);
+        note.textContent = problems.length ? problems.join(' · ') : 'Updated ' + new Date().toLocaleTimeString() + ' · refreshes every 20s.';
+      } catch (e) {
+        note.textContent = 'Could not read Pepper: ' + e.message;
+      }
+      if (dashActive) dashPepperTimer = setTimeout(refreshDashPepper, DASH_PEPPER_MS);
+    }
+
+    // ---- doctor.py ----
+    async function runDoctor() {
+      const btn = document.getElementById('btnDoctor');
+      const summary = document.getElementById('doctorSummary');
+      const results = document.getElementById('doctorResults');
+      btn.disabled = true;
+      summary.textContent = 'Running checks… (about 15 seconds)';
+      try {
+        const ip = pepperConnected ? ipInput.value.trim() : '';
+        const d = await dashJSON('/api/dashboard/doctor' + (ip ? '?ip=' + encodeURIComponent(ip) : ''));
+        const counts = { PASS: 0, WARN: 0, FAIL: 0, SKIP: 0 };
+        const groups = d.report.groups.map(function (g) {
+          const box = el('div', 'doctor-group');
+          box.appendChild(el('h3', null, g.group));
+          g.results.forEach(function (r) {
+            counts[r.status] = (counts[r.status] || 0) + 1;
+            const row = el('div', 'doctor-row');
+            row.appendChild(el('span', 'status-tag ' + r.status, r.status));
+            const body = el('div');
+            body.appendChild(el('div', null, r.name));
+            if (r.detail) body.appendChild(el('div', 'detail', r.detail));
+            if (r.fix) body.appendChild(el('div', 'fix', '→ ' + r.fix));
+            row.appendChild(body);
+            box.appendChild(row);
+          });
+          return box;
+        });
+        results.replaceChildren.apply(results, groups);
+        summary.innerHTML = '';
+        [['PASS', 'ok'], ['WARN', ''], ['FAIL', 'err']].forEach(function (pair) {
+          summary.appendChild(el('span', pair[1], counts[pair[0]] + ' ' + pair[0].toLowerCase() + '   '));
+        });
+        summary.appendChild(el('span', null, '· ' + new Date().toLocaleTimeString()));
+      } catch (e) {
+        summary.innerHTML = '';
+        summary.appendChild(el('span', 'err', 'Checks failed: ' + e.message));
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // ---- logs ----
+    async function loadLogSources() {
+      const select = document.getElementById('logSource');
+      const previous = select.value;
+      select.replaceChildren();
+      try {
+        const d = await dashJSON('/api/dashboard/log-sources');
+        const containers = el('optgroup'); containers.label = 'Jetson · containers';
+        const units = el('optgroup'); units.label = 'Jetson · services';
+        d.sources.forEach(function (src) {
+          const opt = el('option', null, src.label + (src.state && src.state !== 'running' ? ' (' + src.state + ')' : ''));
+          opt.value = src.id;
+          (src.kind === 'container' ? containers : units).appendChild(opt);
+        });
+        select.appendChild(containers);
+        select.appendChild(units);
+      } catch (e) {
+        document.getElementById('logStatus').textContent = 'Jetson logs unavailable: ' + e.message;
+      }
+      if (pepperConnected) {
+        try {
+          const d = await dashJSON('/api/dashboard/pepper-logs?' + robotQuery() + '&lines=10');
+          const group = el('optgroup'); group.label = 'Pepper · NAOqi';
+          d.files.forEach(function (f) {
+            const opt = el('option', null, f.path.replace(/^.*\/log\//, ''));
+            opt.value = 'pepper:' + f.path;
+            group.appendChild(opt);
+          });
+          if (d.files.length) select.appendChild(group);
+        } catch (e) {
+          log('Pepper log list failed: ' + e.message);
+        }
+      }
+      if (previous && select.querySelector('option[value="' + CSS.escape(previous) + '"]')) select.value = previous;
+      logSourcesLoaded = select.options.length > 0;
+      refreshLog(true);
+    }
+
+    function logLevel(line) {
+      if (/\[(E|F)\]|\b(error|exception|traceback|fatal|critical|failed)\b/i.test(line)) return 'error';
+      if (/\[W\]|\bwarn(ing)?\b/i.test(line)) return 'warn';
+      return '';
+    }
+
+    function renderLog() {
+      const view = document.getElementById('logView');
+      const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 40;
+      const level = document.getElementById('logLevel').value;
+      const needle = document.getElementById('logFilter').value.trim().toLowerCase();
+      const frag = document.createDocumentFragment();
+      let shown = 0;
+      logLines.forEach(function (raw) {
+        const line = raw.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+        const lvl = logLevel(line);
+        if (level === 'error' && lvl !== 'error') return;
+        if (level === 'warn' && !lvl) return;
+        if (needle && line.toLowerCase().indexOf(needle) === -1) return;
+        const row = el('div', 'log-line ' + lvl);
+        const m = line.match(/^(\d{4}-\d\d-\d\dT[\d:.]+\S*)\s(.*)$/);
+        if (m) {
+          row.appendChild(el('span', 'ts', m[1].replace('T', ' ').replace(/\.\d+Z?$|[+-]\d{4}$/, '') + '  '));
+          row.appendChild(document.createTextNode(m[2]));
+        } else {
+          row.textContent = line;
+        }
+        frag.appendChild(row);
+        shown++;
+      });
+      view.replaceChildren(frag);
+      if (atBottom) view.scrollTop = view.scrollHeight;
+      return shown;
+    }
+
+    async function refreshLog(jumpToEnd) {
+      clearTimeout(logTimer);
+      const source = document.getElementById('logSource').value;
+      const status = document.getElementById('logStatus');
+      if (!source || logLoading) { scheduleLogRefresh(); return; }
+      logLoading = true;
+      const lines = document.getElementById('logLines').value;
+      try {
+        let d;
+        if (source.indexOf('pepper:') === 0) {
+          d = await dashJSON('/api/dashboard/pepper-logs?' + robotQuery() + '&lines=' + lines + '&file=' + encodeURIComponent(source.slice(7)));
+        } else {
+          d = await dashJSON('/api/dashboard/logs?source=' + encodeURIComponent(source) + '&lines=' + lines);
+        }
+        logLines = d.lines;
+        if (jumpToEnd) document.getElementById('logView').scrollTop = 1e9;
+        const shown = renderLog();
+        if (jumpToEnd) document.getElementById('logView').scrollTop = 1e9;
+        status.textContent = shown + ' of ' + logLines.length + ' lines · ' + new Date().toLocaleTimeString();
+      } catch (e) {
+        status.textContent = 'Could not read log: ' + e.message;
+      } finally {
+        logLoading = false;
+      }
+      scheduleLogRefresh();
+    }
+
+    function scheduleLogRefresh() {
+      clearTimeout(logTimer);
+      if (dashActive && document.getElementById('logFollow').checked) {
+        logTimer = setTimeout(function () { refreshLog(false); }, LOG_FOLLOW_MS);
+      }
+    }
+
+    // ---- terminal (xterm.js over long-poll; the shell lives in the host helper) ----
+    let term = null, termFit = null;
+    let termToken = null, termSid = null, termOffset = 0, termReadLoop = 0;
+    let termPending = '', termSending = false;
+    try { termToken = sessionStorage.getItem('termToken'); termSid = sessionStorage.getItem('termSid'); } catch (e) { /* private mode */ }
+
+    function termStore(key, value) {
+      try { if (value) sessionStorage.setItem(key, value); else sessionStorage.removeItem(key); } catch (e) { /* ignore */ }
+    }
+
+    async function termApi(action, body, params) {
+      const url = '/api/terminal/' + action + (params ? '?' + new URLSearchParams(params).toString() : '');
+      const res = await fetch(url, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Terminal-Token': termToken || '' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        cache: 'no-store'
+      });
+      let json;
+      try { json = await res.json(); } catch (e) { json = { ok: false, error: 'HTTP ' + res.status }; }
+      if (json.login_required && action !== 'login') { termLoggedOut(json.error); }
+      if (!json.ok) { const err = new Error(json.error || 'Terminal error'); err.status = res.status; throw err; }
+      return json;
+    }
+
+    function termShow() {
+      const loggedIn = !!termToken;
+      document.getElementById('termLogin').hidden = loggedIn;
+      document.getElementById('termWrap').hidden = !loggedIn;
+      document.getElementById('btnTermNew').hidden = !loggedIn;
+      document.getElementById('btnTermLogout').hidden = !loggedIn;
+      if (!loggedIn) return;
+      termEnsure();
+      requestAnimationFrame(termResize);
+      if (!termSid) termNewSession();
+      else if (!termReadLoop) termAttach();
+    }
+
+    function termLoggedOut(message) {
+      termToken = null; termSid = null; termReadLoop = 0;
+      termStore('termToken', null); termStore('termSid', null);
+      document.getElementById('termLoginStatus').textContent = message || '';
+      termShow();
+    }
+
+    async function termLogin(event) {
+      event.preventDefault();
+      const status = document.getElementById('termLoginStatus');
+      const input = document.getElementById('termPassword');
+      status.textContent = 'Checking…';
+      try {
+        const d = await termApi('login', { password: input.value });
+        termToken = d.token;
+        termStore('termToken', termToken);
+        input.value = '';
+        status.textContent = '';
+        termShow();
+      } catch (e) {
+        status.innerHTML = '';
+        status.appendChild(el('span', 'err', e.message));
+      }
+    }
+
+    function termLogout() {
+      if (termSid) termApi('close', {}, { sid: termSid }).catch(function () {});
+      if (term) term.reset();
+      termLoggedOut('Locked.');
+    }
+
+    function termEnsure() {
+      if (term) return;
+      term = new Terminal({
+        cursorBlink: true, fontSize: window.innerWidth < 620 ? 12 : 13, scrollback: 5000,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        theme: { background: '#03070e', foreground: '#f5f8ff', cursor: '#64e5ff', selectionBackground: 'rgba(100,229,255,.3)' }
+      });
+      termFit = new FitAddon.FitAddon();
+      term.loadAddon(termFit);
+      term.open(document.getElementById('terminal'));
+      term.onData(termSend);
+      term.onResize(function (size) {
+        if (termSid) termApi('resize', { cols: size.cols, rows: size.rows }, { sid: termSid }).catch(function () {});
+      });
+      window.addEventListener('resize', termResize);
+      document.querySelectorAll('.term-keys button').forEach(function (b) {
+        b.addEventListener('click', function () { termSend(JSON.parse('"' + b.dataset.key + '"')); term.focus(); });
+      });
+    }
+
+    function termResize() {
+      if (term && termFit && !document.getElementById('termWrap').hidden) {
+        try { termFit.fit(); } catch (e) { /* not visible yet */ }
+      }
+    }
+
+    // Keystrokes are batched: one request in flight, the rest queue up in order.
+    function termSend(data) {
+      termPending += data;
+      if (termSending || !termSid) return;
+      termSending = true;
+      (async function flush() {
+        while (termPending && termSid) {
+          const chunk = termPending; termPending = '';
+          try { await termApi('write', { data: chunk }, { sid: termSid }); } catch (e) { termPending = ''; break; }
+        }
+        termSending = false;
+      })();
+    }
+
+    async function termNewSession() {
+      if (!termToken) return;
+      termEnsure();
+      termResize();
+      if (termSid) termApi('close', {}, { sid: termSid }).catch(function () {});
+      term.reset();
+      try {
+        const d = await termApi('open', { cols: term.cols, rows: term.rows });
+        termSid = d.sid;
+        termStore('termSid', termSid);
+        termOffset = 0;
+        document.getElementById('termStatus').textContent = '';
+        termAttach();
+        term.focus();
+      } catch (e) {
+        document.getElementById('termStatus').textContent = 'Could not start a shell: ' + e.message;
+      }
+    }
+
+    async function termAttach() {
+      const loop = ++termReadLoop;
+      const sid = termSid;
+      termApi('resize', { cols: term.cols, rows: term.rows }, { sid: sid }).catch(function () {});
+      while (loop === termReadLoop && termSid === sid) {
+        try {
+          const d = await termApi('read', undefined, { sid: sid, offset: termOffset, wait: 20 });
+          if (loop !== termReadLoop) return;
+          if (d.data) term.write(Uint8Array.from(atob(d.data), function (c) { return c.charCodeAt(0); }));
+          termOffset = d.offset;
+          if (!d.alive) {
+            term.write('\r\n\x1b[90m[shell exited — New session to start another]\x1b[0m\r\n');
+            termSid = null; termStore('termSid', null);
+            break;
+          }
+        } catch (e) {
+          if (e.status === 410) {
+            termSid = null; termStore('termSid', null);
+            document.getElementById('termStatus').textContent = 'Session ended (idle or helper restarted).';
+            if (termToken) termNewSession();
+            return;
+          }
+          if (!termToken) return;
+          document.getElementById('termStatus').textContent = 'Reconnecting… ' + e.message;
+          await new Promise(function (r) { setTimeout(r, 2000); });
+        }
+      }
+      if (loop === termReadLoop) termReadLoop = 0;
+    }
   </script>
 </body>
 

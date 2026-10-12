@@ -34,12 +34,19 @@ endpoint can reconfigure networking (more sensitive than the rest of the
 portal, which already runs with no auth on a trusted robot LAN), set
 PEPPER_WIFI_HELPER_TOKEN to require a matching X-Wifi-Helper-Token header;
 leave it unset for a quick test on a private network.
+
+It also serves the portal's Dashboard and Pepper auto-discovery -- finding
+Pepper on pepper-ap by MAC, doctor.py, container/journal logs and a
+password-protected shell. Those live in host_tools.py; this file only routes.
 """
 import json
 import os
 import re
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
+
+import host_tools
 
 HOST = os.environ.get("PEPPER_WIFI_HELPER_HOST", "0.0.0.0")
 # 8767, not 8766: 8766 is where .env publishes speech-to-text on this Jetson.
@@ -50,7 +57,10 @@ AP_IFACE = os.environ.get("PEPPER_AP_IFACE", "wlx088af19321e3")
 ROUTE_METRIC = os.environ.get("PEPPER_WIFI_ROUTE_METRIC", "").strip() or None
 AUTH_TOKEN = os.environ.get("PEPPER_WIFI_HELPER_TOKEN", "").strip() or None
 NMCLI_TIMEOUT = int(os.environ.get("PEPPER_WIFI_NMCLI_TIMEOUT", "25"))
-MAX_BODY_BYTES = 8 * 1024
+MAX_BODY_BYTES = 64 * 1024
+# Terminal reads long-poll; the portal's proxy timeout must stay above this.
+TERMINAL_WAIT_SECONDS = 20
+TERMINALS = host_tools.Terminals()
 
 
 def run_nmcli(args, timeout=NMCLI_TIMEOUT):
@@ -192,6 +202,8 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "PepperWifiHelper/1.0"
 
     def log_message(self, message, *args):
+        if self.path.startswith("/terminal/"):
+            return  # one line per keystroke would bury the journal
         print("%s - %s" % (self.address_string(), message % args), flush=True)
 
     def respond(self, status, payload):
@@ -208,58 +220,97 @@ class Handler(BaseHTTPRequestHandler):
             return True
         return self.headers.get("X-Wifi-Helper-Token") == AUTH_TOKEN
 
+    def read_json(self):
+        size = int(self.headers.get("Content-Length", "0"))
+        if size <= 0 or size > MAX_BODY_BYTES:
+            raise ValueError("Request body must be between 1 byte and %d bytes" % MAX_BODY_BYTES)
+        return json.loads(self.rfile.read(size).decode("utf-8"))
+
+    def terminal(self):
+        """The open Terminal named by ?sid=, after checking the login token."""
+        TERMINALS.check(self.headers.get("X-Terminal-Token"))
+        return TERMINALS.get(self.query.get("sid"))
+
     def do_GET(self):
-        if self.path == "/health":
+        url = urlsplit(self.path)
+        self.query = {k: v[-1] for k, v in parse_qs(url.query).items()}
+        path = url.path
+        if path == "/health":
             self.respond(200, {"ok": True, "interface": IFACE})
             return
         if not self.authorized():
             self.respond(401, {"ok": False, "error": "Missing or invalid X-Wifi-Helper-Token"})
             return
-        if self.path == "/status":
-            try:
-                self.respond(200, {"ok": True, "status": interface_status()})
-            except Exception as exc:
-                self.respond(500, {"ok": False, "error": str(exc)})
-            return
-        if self.path == "/overview":
-            try:
-                self.respond(200, {"ok": True, "uplink_interface": IFACE, "ap_interface": AP_IFACE,
-                                   "devices": device_overview()})
-            except Exception as exc:
-                self.respond(500, {"ok": False, "error": str(exc)})
-            return
-        if self.path == "/networks":
-            try:
-                self.respond(200, {"ok": True, "networks": scan_networks()})
-            except Exception as exc:
-                self.respond(500, {"ok": False, "error": str(exc)})
-            return
-        self.respond(404, {"ok": False, "error": "Not found"})
+        routes = {
+            "/status": lambda: {"status": interface_status()},
+            "/overview": lambda: {"uplink_interface": IFACE, "ap_interface": AP_IFACE,
+                                  "devices": device_overview()},
+            "/networks": lambda: {"networks": scan_networks()},
+            "/pepper": host_tools.find_pepper,
+            "/doctor": lambda: {"report": host_tools.run_doctor(self.query.get("pepper_ip"))},
+            "/logs/sources": lambda: {"sources": host_tools.log_sources(),
+                                      "terminal_enabled": TERMINALS.enabled()},
+            "/logs": lambda: {"lines": host_tools.read_log(self.query.get("source"),
+                                                           self.query.get("lines", 300))},
+            "/terminal/read": self.terminal_read,
+        }
+        self.dispatch(routes, path)
+
+    def terminal_read(self):
+        data, offset, alive = self.terminal().read(
+            int(self.query.get("offset", 0)), min(TERMINAL_WAIT_SECONDS, float(self.query.get("wait", 0))))
+        return {"data": host_tools.b64(data), "offset": offset, "alive": alive}
 
     def do_POST(self):
+        url = urlsplit(self.path)
+        self.query = {k: v[-1] for k, v in parse_qs(url.query).items()}
         if not self.authorized():
             self.respond(401, {"ok": False, "error": "Missing or invalid X-Wifi-Helper-Token"})
             return
-        if self.path != "/connect":
-            self.respond(404, {"ok": False, "error": "Not found"})
-            return
         try:
-            size = int(self.headers.get("Content-Length", "0"))
-            if size <= 0 or size > MAX_BODY_BYTES:
-                raise ValueError("Request body must be between 1 byte and %d bytes" % MAX_BODY_BYTES)
-            payload = json.loads(self.rfile.read(size).decode("utf-8"))
-            ssid = (payload.get("ssid") or "").strip()
-            password = payload.get("password") or ""
-            if not ssid:
-                raise ValueError("'ssid' is required")
+            payload = self.read_json()
         except Exception as exc:
             self.respond(400, {"ok": False, "error": str(exc)})
             return
+        routes = {
+            "/connect": lambda: self.connect_wifi(payload),
+            "/pepper/remember": lambda: {"mac": host_tools.remember_pepper(payload.get("mac"))},
+            "/terminal/login": lambda: {"token": TERMINALS.login(payload.get("password"))},
+            "/terminal/open": lambda: self.terminal_open(payload),
+            "/terminal/write": lambda: self.terminal().write(payload.get("data", "").encode("utf-8")) or {},
+            "/terminal/resize": lambda: self.terminal().resize(payload.get("cols", 100),
+                                                               payload.get("rows", 30)) or {},
+            "/terminal/close": lambda: TERMINALS.close(self.query.get("sid")) or {},
+        }
+        self.dispatch(routes, url.path)
 
+    def connect_wifi(self, payload):
+        ssid = (payload.get("ssid") or "").strip()
+        if not ssid:
+            raise ValueError("'ssid' is required")
+        return connect(ssid, payload.get("password") or "")
+
+    def terminal_open(self, payload):
+        TERMINALS.check(self.headers.get("X-Terminal-Token"))
+        return {"sid": TERMINALS.open(payload.get("cols", 100), payload.get("rows", 30))}
+
+    def dispatch(self, routes, path):
+        handler = routes.get(path)
+        if handler is None:
+            self.respond(404, {"ok": False, "error": "Not found"})
+            return
         try:
-            self.respond(200, connect(ssid, password))
+            result = handler()
+        except host_tools.LoginRequired as exc:
+            self.respond(401, {"ok": False, "error": str(exc), "login_required": True})
+        except KeyError as exc:
+            self.respond(410, {"ok": False, "error": exc.args[0] if exc.args else "Gone"})
+        except ValueError as exc:
+            self.respond(400, {"ok": False, "error": str(exc)})
         except Exception as exc:
             self.respond(500, {"ok": False, "error": str(exc)})
+        else:
+            self.respond(200, dict(result, ok=True))
 
 
 if __name__ == "__main__":

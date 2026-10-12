@@ -9,6 +9,7 @@ Usage:
     python3 doctor.py --only ollama stt  # run one or more groups
     python3 doctor.py --list             # list group names
     python3 doctor.py --json             # machine-readable output
+    python3 doctor.py --pepper-ip 1.2.3.4  # check that Pepper, not PEPPER_IP in .env
 
 Exit code = number of FAIL results (0 = clean).
 """
@@ -27,6 +28,8 @@ import urllib.request
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(REPO_ROOT, ".env")
+# --pepper-ip: beats PEPPER_IP in .env (the portal passes the Pepper it found).
+PEPPER_IP_OVERRIDE = None
 
 
 # ---------------- result plumbing ----------------
@@ -98,7 +101,35 @@ def load_env():
                 env[key.strip()] = value.strip().strip('"').strip("'")
     except FileNotFoundError:
         pass
+    if PEPPER_IP_OVERRIDE:
+        env["PEPPER_IP"] = PEPPER_IP_OVERRIDE
+    elif env.get("PEPPER_MAC"):
+        # Pepper is known by MAC; its IP is whatever pepper-ap last gave it.
+        env["PEPPER_IP"] = ip_for_mac(env["PEPPER_MAC"]) or env.get("PEPPER_IP", "")
     return env
+
+
+def ip_for_mac(mac):
+    """Pepper's current IP from the AP's DHCP leases (root only) or the neighbour table."""
+    mac = mac.strip().lower()
+    leases = "/var/lib/NetworkManager/dnsmasq-%s.leases" % os.environ.get("PEPPER_AP_IFACE", "wlx088af19321e3")
+    try:
+        with open(leases) as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 3 and parts[1].lower() == mac:
+                    return parts[2]
+    except OSError:
+        pass
+    try:
+        out = subprocess.run(["ip", "-o", "-4", "neigh"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in out.splitlines():
+        parts = line.split()
+        if "lladdr" in parts and parts[parts.index("lladdr") + 1].lower() == mac:
+            return parts[0]
+    return None
 
 
 def run(cmd, timeout=10, check=False):
@@ -320,7 +351,7 @@ def check_network(env):
         except Exception as e:
             out.append(Result("Pepper NAOqi :9559", FAIL, str(e), fix="verify Pepper is booted and the WiFi dongle bridges into Pepper's network"))
     else:
-        out.append(Result("Pepper reachability", SKIP, "PEPPER_IP not set in .env"))
+        out.append(Result("Pepper reachability", SKIP, "PEPPER_MAC/PEPPER_IP not set in .env"))
 
     return out
 
@@ -720,7 +751,7 @@ def check_portal(env):
                               "ALTabletService not running (tablet offline or unlinked from the head)",
                               fix="restart the tablet, or reboot Pepper"))
     else:
-        out.append(Result("pepper tablet", SKIP, "PEPPER_IP not set in .env"))
+        out.append(Result("pepper tablet", SKIP, "PEPPER_MAC/PEPPER_IP not set in .env"))
 
     status, body, err = http_json("http://127.0.0.1:8767/health", timeout=3)
     if status == 200 and isinstance(body, dict) and body.get("ok"):
@@ -782,7 +813,7 @@ def check_pepper_ssh(env):
     out.append(Result("ssh key in volume", PASS, "id_ed25519 present"))
 
     if not pepper_ip:
-        out.append(Result("PEPPER_IP set", SKIP, "add PEPPER_IP=<ip> to .env to test ssh/scp"))
+        out.append(Result("PEPPER_IP set", SKIP, "connect once from the portal (saves PEPPER_MAC) to test ssh/scp"))
         return out
 
     # Non-interactive login (BatchMode + short timeout so this doesn't hang)
@@ -861,7 +892,11 @@ def main():
     parser.add_argument("--only", nargs="+", metavar="GROUP", help="Run only these groups")
     parser.add_argument("--list", action="store_true", help="List group names")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of colored text")
+    parser.add_argument("--pepper-ip", metavar="IP", help="Check this Pepper instead of PEPPER_IP in .env")
     args = parser.parse_args()
+
+    global PEPPER_IP_OVERRIDE
+    PEPPER_IP_OVERRIDE = args.pepper_ip
 
     if args.list:
         for name, _, desc in GROUPS:

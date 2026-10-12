@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """HTTP routes, one blueprint per area. Each only translates HTTP to robot/ calls."""
-from . import media_routes, network_routes, robot_routes, scene_routes, tablet_routes
+from . import (dashboard_routes, media_routes, network_routes, robot_routes, scene_routes,
+               tablet_routes)
 
 BLUEPRINTS = (
     robot_routes.bp,
@@ -8,6 +9,7 @@ BLUEPRINTS = (
     media_routes.bp,
     tablet_routes.bp,
     network_routes.bp,
+    dashboard_routes.bp,
 )
 
 

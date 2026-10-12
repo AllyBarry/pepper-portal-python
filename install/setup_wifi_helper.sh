@@ -54,7 +54,7 @@ nmcli device status | grep -q "^$IFACE " || {
 echo "Writing $UNIT_PATH ..."
 sudo tee "$UNIT_PATH" >/dev/null <<EOF
 [Unit]
-Description=Pepper portal wifi helper (nmcli bridge for the portal Network workspace)
+Description=Pepper portal host helper (Wi-Fi, Pepper discovery, Dashboard logs/doctor/terminal)
 After=network.target NetworkManager.service
 
 [Service]

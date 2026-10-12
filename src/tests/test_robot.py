@@ -109,6 +109,34 @@ class FilesAndNetworkTest(unittest.TestCase):
         self.assertEqual(pepper.network.internet(), {"online": True, "error": None})
 
 
+class HealthTest(unittest.TestCase):
+    def test_status_parses_one_round_trip(self):
+        out = ("@uptime\n3725.4 100.0\n@load\n0.52 0.40 0.31 1/200 999\n"
+               "@mem\nMem: 3842 2100 1742 0 0 0\n@disk\n/dev/sda4 1000 400 600 40% /home\n@host\nPepper\n")
+        pepper = Robot("10.0.0.2", services=FakeServices(), shell=FakeShell({"echo @uptime": out}))
+        self.assertEqual(pepper.health.status(), {
+            "hostname": "Pepper", "uptime_s": 3725, "load": ["0.52", "0.40", "0.31"],
+            "mem_total_mb": 3842, "mem_used_mb": 2100, "disk_used_pct": 40})
+
+    def test_log_files_and_tail(self):
+        shell = FakeShell({"find": "20 5 /var/log/naoqi/servicemanager/a b.log\n10 7 /var/log/naoqi/x.log\n",
+                           "tail": "one\ntwo\n"})
+        pepper = Robot("10.0.0.2", services=FakeServices(), shell=shell)
+        self.assertEqual(pepper.health.log_files()[0], {"path": "/var/log/naoqi/servicemanager/a b.log", "size": 5})
+        self.assertEqual(pepper.health.tail("/var/log/naoqi/x.log", 50), ["one", "two"])
+        self.assertEqual(shell.commands[-1], "tail -n 50 '/var/log/naoqi/x.log'")
+
+    def test_tail_refuses_other_files(self):
+        pepper = Robot("10.0.0.2", services=FakeServices(), shell=FakeShell())
+        for path in ("/etc/shadow", "/var/log/naoqi/../../etc/shadow", "/var/log/naoqi-evil/x.log"):
+            self.assertRaises(ValueError, pepper.health.tail, path)
+
+    def test_battery(self):
+        pepper, _ = make_robot(results={"ALBattery": {"getBatteryCharge": 87},
+                                        "ALMemory": {"getData": 0.4}})
+        self.assertEqual(pepper.system.battery(), {"charge": 87, "charging": True})
+
+
 class SessionPoolTest(unittest.TestCase):
     def test_reuses_live_session_and_replaces_dead_one(self):
         made = []

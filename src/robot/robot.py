@@ -4,6 +4,7 @@ from .awareness import Awareness
 from .behaviors import Behaviors
 from .camera import Camera
 from .files import RobotFiles
+from .health import RobotHealth
 from .microphone import Microphone
 from .motion import Motion
 from .network import RobotNetwork
@@ -38,9 +39,10 @@ class Robot(object):
         robot.camera      head-camera snapshots
         robot.microphone  record one utterance
         robot.tablet      chest tablet: web page / video / image
-        robot.system      ping, version
+        robot.system      ping, version, name, battery
         robot.files       Pepper's sound folder (SSH)
         robot.network     checks run on Pepper (SSH)
+        robot.health      uptime, memory, disk, NAOqi logs (SSH)
 
     Cheap to create: nothing connects until a capability is used, and qi
     sessions are shared per ip:port.
@@ -65,6 +67,7 @@ class Robot(object):
         self.system = System(services)
         self.files = RobotFiles(shell)
         self.network = RobotNetwork(shell)
+        self.health = RobotHealth(shell)
 
     def disconnect(self):
         """Forget the cached session so the next call starts a fresh connection."""

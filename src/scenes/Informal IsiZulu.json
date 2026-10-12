@@ -49,7 +49,7 @@
     {
       "actions": [
         {
-          "audiofile": "3_Informal Zulu.wav"
+          "audiofile": "/data/home/nao/.local/share/wav/Vicky_Pepper_Project_2025/Informal Conditions/isiZulu/3.wav"
         }, 
         {
           "animation": "animations/Stand/Gestures/Give_5", 

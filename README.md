@@ -131,6 +131,30 @@ which `.env` gives to speech-to-text). The portal reaches it at `http://host.doc
 
 Logs: `sudo journalctl -u pepper-wifi-helper.service -f`.
 
+After pulling changes to `host_services/`, restart it: `sudo systemctl restart pepper-wifi-helper`.
+
+## Finding Pepper, and the Dashboard
+
+**Pepper is identified by MAC address, not IP.** The Jetson is Pepper's DHCP server (NetworkManager's dnsmasq on
+`pepper-ap`), so the host helper reads its lease file and `ip neigh` and probes each device on NAOqi's port 9559.
+The landing page connects on its own when it finds Pepper and retries every 5 s while Pepper boots. The first
+successful connect writes `PEPPER_MAC=` to `.env`, and from then on only that robot is picked, whatever IP it
+gets. **Enter IP manually** is still there as a fallback; connecting that way also saves the MAC. To switch
+robots, clear `PEPPER_MAC` in `.env`. `doctor.py` and media sync look Pepper up by `PEPPER_MAC` too
+(`doctor.py --pepper-ip` overrides).
+
+**Dashboard** (portal → **Dashboard**):
+- **Pepper**: battery and charging (NAOqi), plus uptime, memory and disk (SSH)
+- **System checks**: runs `doctor.py --json` on the Jetson against the connected Pepper
+- **Logs**: docker containers, `pepper-wifi-helper`/`NetworkManager`/`docker` journals, and NAOqi's logs on
+  Pepper, with level and text filters and auto-follow
+- **Terminal**: a real shell on the Jetson as the `jetson` user (`PEPPER_TERMINAL_USER`), unlocked with
+  `PORTAL_TERMINAL_PASSWORD` from `.env`. The password is re-read on every login. Leave it empty to turn the
+  terminal off. Anyone with the password can run anything that user can, so change the default.
+
+All of this runs in the host helper (`host_services/host_tools.py`), because the lease file, docker, journalctl
+and a pty are all outside the portal container.
+
 ## Always-On Deployment (Jetson, Raspberry Pi, etc.)
 
 For a machine that stays on and should just come back up after every reboot

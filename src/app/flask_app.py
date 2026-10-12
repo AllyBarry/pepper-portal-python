@@ -49,8 +49,24 @@ app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MEDIA_MAX_MB", "300")) * 
 
 routes.register(app)
 # Start the media sync worker now rather than on the first page load, so audio
-# copied into media/ by hand reaches PEPPER_IP with no browser open.
+# copied into media/ by hand reaches Pepper with no browser open.
 media_store.request_sync()
+
+
+def _sync_to_discovered_pepper():
+    """Point media sync at Pepper (found by PEPPER_MAC) until a page names one itself."""
+    from routes.dashboard_routes import find_pepper_ip
+    while media_store.status().get("ip") is None:
+        ip = find_pepper_ip()
+        if ip:
+            media_store.set_robot(ip)
+            return
+        time.sleep(30)
+
+
+_locate_thread = threading.Thread(target=_sync_to_discovered_pepper, name="pepper-locate")
+_locate_thread.daemon = True
+_locate_thread.start()
 
 _ollama_generation_lock = threading.Lock()
 
